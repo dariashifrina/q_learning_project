@@ -59,9 +59,9 @@ class QLearner:
                 current_state = self.state_matrix[x]
                 possible_act = [-1] * 64
                 for y in range(0, 64):
+                    next_state = self.state_matrix[y]
                     valid = True
                     if x != y:
-                        next_state = self.state_matrix[y]
                         # Check if multiple dumbells have been moved
                         moved_dumbells = 0
                         for i in range(0, 3):
@@ -100,14 +100,19 @@ class QLearner:
                     if not valid:
                         possible_act[y] = -1
                     else:
-                        possible_act[y] = 0
+                        # Determine action number to take
+                        for i in range(0, 3):
+                            if current_state[i] != next_state[i]:
+                                # Formula: Since there are 3 actions per color, we can multiple
+                                # the color by 3 to get to first action corresponding to that color.
+                                # Then, we can add the block number and subtrat 1 to find the right
+                                # action number
+                                possible_act[y] = (i*3) + next_state[i] - 1
+                                break
 
                 self.action_matrix[x] = possible_act
 
             print(self.action_matrix)
-            print(self.action_matrix[1])
-            print(self.action_matrix[15])
-
 
         def image_callback(self, msg):
 
