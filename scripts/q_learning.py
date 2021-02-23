@@ -16,13 +16,12 @@ class QLearner:
             self.q_reward = rospy.Subscriber('/q_learning/reward', QLearningReward, self.image_callback)
             self.q_matrix = rospy.Publisher('/q_learning/q_matrix', QMatrix, queue_size=10)
             self.bot_action = rospy.Publisher('/q_learning/robot_action', RobotMoveDBToBlock, queue_size=10)
-            print('testing')
 
             self.initialize_state_matrix()
-            print(self.state_matrix)
-            #self.initialize_action_matrix()
+            self.initialize_action_matrix()
 
             self.initialized = True
+            print('Initiliazation Complete')
 
                 # # set up ROS / OpenCV bridge
                 # self.bridge = cv_bridge.CvBridge()
@@ -39,12 +38,75 @@ class QLearner:
         def initialize_state_matrix(self):
             self.state_matrix = {}
 
+            # Iterate through the locations of all 3 dumbells in a way that a) creates
+            # 64 states, and b) enables each state to correspond to the state matrix given
+            # in the project description (ie. state 0 here has all dumbells at the origin)
             state_num = 0
             for blue_loc in range(0, 4):
                 for green_loc in range(0, 4):
                     for red_loc in range(0, 4):
                         self.state_matrix[state_num] = [red_loc, green_loc, blue_loc]
                         state_num = state_num + 1
+
+        # Create the action matrix. This leverages the state matrix created in
+        # initialize_state_matrix(). Key features are: inability for a state transition to move 2
+        # dumbells simultaneously and the prevention of two dumbells at the same Block
+        def initialize_action_matrix(self):
+            # Create a 64x64 numpy matrix where the default value is -1
+            self.action_matrix = numpy.full((64, 64), -1)
+
+            for x in range(0, 64):
+                current_state = self.state_matrix[x]
+                possible_act = [-1] * 64
+                for y in range(0, 64):
+                    valid = True
+                    if x != y:
+                        next_state = self.state_matrix[y]
+                        # Check if multiple dumbells have been moved
+                        moved_dumbells = 0
+                        for i in range(0, 3):
+                            if current_state[i] != next_state[i]:
+                                # Since dumbells start at the origin (0) and only
+                                # ever move once, if the current state is greater than
+                                # the next state we know this is not a valid move
+                                if current_state[i] > next_state[i]:
+                                    valid = False
+                                    break
+                                # Dumbells can only move from origin to a block (not between blocks)
+                                elif current_state[i] > 0 and next_state[i] > 0:
+                                    valid = False
+                                    break
+                                else:
+                                    moved_dumbells = moved_dumbells + 1
+
+                            if moved_dumbells > 1:
+                                valid = False
+                                break
+
+                        # Check if multiple dumbells are at the same block
+                        for i in range(1, 4):
+                            count = 0
+                            for j in range(0, 3):
+                                if next_state[j] == i:
+                                    count = count + 1
+                                if count > 1:
+                                    valid = False
+                                    break
+                            if not valid:
+                                break
+                    else:
+                        valid = False
+
+                    if not valid:
+                        possible_act[y] = -1
+                    else:
+                        possible_act[y] = 0
+
+                self.action_matrix[x] = possible_act
+
+            print(self.action_matrix)
+            print(self.action_matrix[1])
+            print(self.action_matrix[15])
 
 
         def image_callback(self, msg):
