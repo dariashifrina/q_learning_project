@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import rospy, cv2, cv_bridge, numpy, random
+import rospy, cv2, cv_bridge, numpy, random, copy
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import Twist
 from std_msgs.msg import Header
@@ -26,10 +26,10 @@ class QLearner:
             self.gamma = 1
             self.t = 0
             # Always begin with all blocks at the origin
-            self.state = 0
+            self.actual_state = 0
             self.initialize_q_matrix()
             # TODO remove this (goes in the sub)
-            self.q_algorithm(self.state)
+            self.q_algorithm(self.actual_state)
 
             self.initialized = True
             print('Initiliazation Complete')
@@ -168,7 +168,39 @@ class QLearner:
             action.robot_db = color
 
             # Perform the chosen action
-            self.bot_action.publish(action)
+            # self.bot_action.publish(action)
+
+
+        # Given the action performed, this determines the next state
+        # and updates self.actual_state accordingly. This is important for performing the next iteration
+        # of the Q-learning q_algorithm
+        # This determines the next state by simply iterating through the state matrix until it finds the right next state
+        def determine_next_state(self, action_num):
+            next_state = copy.deepcopy(self.state_matrix[self.actual_state])
+
+            block_num = (action_num+1)%3
+            if block_num == 0:
+                block_num = 3
+            # Red dumbell was moved
+            if action_num/3 < 1:
+                next_state[0] = block_num
+            # Green dumbell was moved
+            elif action_num/3 < 2:
+                next_state[1] = block_num
+            # Blue dumbell was moved
+            else:
+                next_state[2] = block_num
+
+            # Iterate through all 64 states in state matrix until you find the matching next state
+            for x in range(0, 63):
+                test_state = self.state_matrix[x]
+                print(test_state)
+                for y in range(0, 3):
+                    if next_state[y] != test_state[y]:
+                        break
+                    # Will only get here is the next_state and test_state match exactly (aka found the right state)
+                    if y == 2:
+                        self.actual_state = x
 
         def run(self):
                 rospy.spin()
