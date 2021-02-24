@@ -14,7 +14,7 @@ class QLearner:
 
             #set up Subscriber and Publishers
             #TODO link correct function for Sub
-            self.q_reward = rospy.Subscriber('/q_learning/reward', QLearningReward, self.q_algorithm)
+            self.q_reward = rospy.Subscriber('/q_learning/reward', QLearningReward, self.q_algorithm_pt2)
             self.q_matrix_pub = rospy.Publisher('/q_learning/q_matrix', QMatrix, queue_size=10)
             self.bot_action = rospy.Publisher('/q_learning/robot_action', RobotMoveDBToBlock, queue_size=10)
 
@@ -28,8 +28,10 @@ class QLearner:
             # Always begin with all blocks at the origin
             self.actual_state = 0
             self.initialize_q_matrix()
+
+            self.q_algorithm_pt1(self.actual_state)
             # TODO remove this (goes in the sub)
-            self.q_algorithm(self.actual_state)
+            self.q_algorithm_pt2(1)
 
             self.initialized = True
             print('Initiliazation Complete')
@@ -127,15 +129,17 @@ class QLearner:
         # This creates the QMatrix
         # TODO publish initial q matrix
         def initialize_q_matrix(self):
-            header = Header()
+            h = Header()
             # TODO https://answers.ros.org/question/60209/what-is-the-proper-way-to-create-a-header-with-python/
-            header.stamp = rospy.Time.now()
-            header.frame_id = "q_matrix"
-
+            h.stamp = rospy.Time.now()
+            h.frame_id = "q_matrix"
             temp = QMatrixRow()
             temp.q_matrix_row = [0] * 9
+
+            self.actual_q_matrix = QMatrix()
+            self.actual_q_matrix.header = h
             # 64 different states = 64 rows, with 9 possible actions each (columns)
-            q_matrix = [temp] * 64
+            self.actual_q_matrix.q_matrix = [temp] * 64
 
         # Queries the action matrix to determine the valid actions from the given state.
         # Output is an array of valid actions
@@ -147,45 +151,21 @@ class QLearner:
                     valid.append(x)
             return valid
 
-        # This function runs the actual algorithm
-        def q_algorithm(self, state):
-            valid = self.valid_actions(state)
-
-            # Select a random actions
-            action_num = valid[random.randint(0, len(valid) - 1)]
-            action = RobotMoveDBToBlock()
-            block_num = (action_num+1)%3
-            if block_num == 0:
-                block_num = 3
-            action.block_id = block_num
-            color = ''
-            if action_num >= 0 and action_num <=2:
-                color = 'red'
-            elif action_num >= 3 and action_num <= 5:
-                color = 'green'
-            else:
-                color = 'blue'
-            action.robot_db = color
-
-            # Perform the chosen action
-            # self.bot_action.publish(action)
-
-
         # Given the action performed, this determines the next state
         # and updates self.actual_state accordingly. This is important for performing the next iteration
         # of the Q-learning q_algorithm
         # This determines the next state by simply iterating through the state matrix until it finds the right next state
-        def determine_next_state(self, action_num):
+        def determine_next_state(self):
             next_state = copy.deepcopy(self.state_matrix[self.actual_state])
 
-            block_num = (action_num+1)%3
+            block_num = (self.action_num+1)%3
             if block_num == 0:
                 block_num = 3
             # Red dumbell was moved
-            if action_num/3 < 1:
+            if self.action_num/3 < 1:
                 next_state[0] = block_num
             # Green dumbell was moved
-            elif action_num/3 < 2:
+            elif self.action_num/3 < 2:
                 next_state[1] = block_num
             # Blue dumbell was moved
             else:
@@ -194,13 +174,72 @@ class QLearner:
             # Iterate through all 64 states in state matrix until you find the matching next state
             for x in range(0, 63):
                 test_state = self.state_matrix[x]
-                print(test_state)
                 for y in range(0, 3):
                     if next_state[y] != test_state[y]:
                         break
                     # Will only get here is the next_state and test_state match exactly (aka found the right state)
                     if y == 2:
-                        self.actual_state = x
+                        return x
+
+        # This function runs selects and executes a randomly chosen action
+        # q_algorithm_pt2 is called when a QLearningReward is published (this updates q_matrix)
+        # with appropriate reward
+        def q_algorithm_pt1(self, state):
+            valid = self.valid_actions(state)
+
+            # Select a random actions
+            self.action_num = valid[random.randint(0, len(valid) - 1)]
+            action = RobotMoveDBToBlock()
+            block_num = (self.action_num+1)%3
+            if block_num == 0:
+                block_num = 3
+            action.block_id = self.action_num
+            color = ''
+            if self.action_num >= 0 and self.action_num <=2:
+                color = 'red'
+            elif self.action_num >= 3 and self.action_num <= 5:
+                color = 'green'
+            else:
+                color = 'blue'
+            action.robot_db = color
+
+            # Perform the chosen action
+            self.bot_action.publish(action)
+
+        # Callback function for /q_learning/reward topic. Updates the matrix, and increments the time
+        # Additionally, checks to see if Q has converged and, if no, runs the algorithm again
+        def q_algorithm_pt2(self, reward):
+            initial_val = copy.deepcopy(self.actual_q_matrix.q_matrix[self.actual_state].q_matrix_row[self.action_num])
+            print(initial_val)
+
+            # Find the next state. This is used to get the max reward from the next state
+            next_state = self.determine_next_state()
+            # Set this to arbitrarily low  (negative) number
+            next_state_reward = -1000000
+            for x in self.actual_q_matrix.q_matrix[next_state].q_matrix_row:
+                if x > next_state_reward:
+                    next_state_reward = x
+            print("Max next state reward: " + str(next_state_reward))
+
+            next_state_reward = 500
+            future_val = self.gamma * (next_state_reward - initial_val)
+            total_val = initial_val + self.alpha * (reward + future_val)
+            print(self.actual_q_matrix)
+
+            # Update the value in the q_matrix
+            z = copy.deepcopy(self.actual_q_matrix.q_matrix[1])
+            z.q_matrix_row[self.action_num] = total_val
+            self.actual_q_matrix.q_matrix[1] = z
+            # Update the current state and increment the time
+            self.actual_state = next_state
+            self.t = self.t + 1
+
+            print(self.actual_q_matrix)
+            print('temp')
+            print(self.actual_q_matrix.q_matrix[1])
+            print(self.actual_q_matrix.q_matrix[50])
+
+
 
         def run(self):
                 rospy.spin()
