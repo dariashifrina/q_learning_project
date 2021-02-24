@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
-import rospy, cv2, cv_bridge, numpy
+import rospy, cv2, cv_bridge, numpy, random
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import Twist
+from std_msgs.msg import Header
 from q_learning_project.msg import QMatrix, QMatrixRow, RobotMoveDBToBlock, QLearningReward
 
 class QLearner:
@@ -13,12 +14,22 @@ class QLearner:
 
             #set up Subscriber and Publishers
             #TODO link correct function for Sub
-            self.q_reward = rospy.Subscriber('/q_learning/reward', QLearningReward, self.image_callback)
-            self.q_matrix = rospy.Publisher('/q_learning/q_matrix', QMatrix, queue_size=10)
+            self.q_reward = rospy.Subscriber('/q_learning/reward', QLearningReward, self.q_algorithm)
+            self.q_matrix_pub = rospy.Publisher('/q_learning/q_matrix', QMatrix, queue_size=10)
             self.bot_action = rospy.Publisher('/q_learning/robot_action', RobotMoveDBToBlock, queue_size=10)
 
             self.initialize_state_matrix()
             self.initialize_action_matrix()
+
+            # Begin running the Q learning algorithm
+            self.alpha = 1
+            self.gamma = 1
+            self.t = 0
+            # Always begin with all blocks at the origin
+            self.state = 0
+            self.initialize_q_matrix()
+            # TODO remove this (goes in the sub)
+            self.q_algorithm(self.state)
 
             self.initialized = True
             print('Initiliazation Complete')
@@ -112,63 +123,57 @@ class QLearner:
 
                 self.action_matrix[x] = possible_act
 
-            print(self.action_matrix)
 
-        def image_callback(self, msg):
+        # This creates the QMatrix
+        # TODO publish initial q matrix
+        def initialize_q_matrix(self):
+            header = Header()
+            # TODO https://answers.ros.org/question/60209/what-is-the-proper-way-to-create-a-header-with-python/
+            header.stamp = rospy.Time.now()
+            header.frame_id = "q_matrix"
 
-                # converts the incoming ROS message to OpenCV format and HSV (hue, saturation, value)
-                image = self.bridge.imgmsg_to_cv2(msg,desired_encoding='bgr8')
-                hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+            temp = QMatrixRow()
+            temp.q_matrix_row = [0] * 9
+            # 64 different states = 64 rows, with 9 possible actions each (columns)
+            q_matrix = [temp] * 64
 
-                print('here')
+        # Queries the action matrix to determine the valid actions from the given state.
+        # Output is an array of valid actions
+        def valid_actions(self, state):
+            all_actions = self.action_matrix[state]
+            valid = []
+            for x in all_actions:
+                if x != -1:
+                    valid.append(x)
+            return valid
 
-                # # TODO: define the upper and lower bounds for what should be considered 'yellow'
-                # lower_yellow = numpy.array([30, 64, 127]) #TODO
-                # upper_yellow = numpy.array([30, 255, 255]) #TODO
-                # mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
-                #
-                # # this erases all pixels that aren't yellow
-                # h, w, d = image.shape
-                # search_top = int(3*h/4)
-                # search_bot = int(3*h/4 + 20)
-                # mask[0:search_top, 0:w] = 0
-                # mask[search_bot:h, 0:w] = 0
+        # This function runs the actual algorithm
+        def q_algorithm(self, state):
+            valid = self.valid_actions(state)
 
-                # # using moments() function, the center of the yellow pixels is determined
-                # M = cv2.moments(mask)
-                # # if there are any yellow pixels found
-                # if M['m00'] > 0:
-                #         # center of the yellow pixels in the image
-                #         cx = int(M['m10']/M['m00'])
-                #         cy = int(M['m01']/M['m00'])
-                #
-                #         # a red circle is visualized in the debugging window to indicate
-                #         # the center point of the yellow pixels
-                #         cv2.circle(image, (cx, cy), 20, (0,0,255), -1)
-                #
-                #         # TODO: based on the location of the line (approximated
-                #         #       by the center of the yellow pixels), implement
-                #         #       proportional control to have the robot follow
-                #         #       the yellow line
-                #         prop_control = 0.3
-                #         center = w/2
-                #         error = (center - cx)
-                #
-                #         twister = Twist()
-                #         twister.linear.x = 0.3
-                #         twister.angular.z = prop_control * error*3.1415/180
-                #         print(twister.angular.z)
-                #
-                #         self.navigator.publish(twister)
+            # Select a random actions
+            action_num = valid[random.randint(0, len(valid) - 1)]
+            action = RobotMoveDBToBlock()
+            block_num = (action_num+1)%3
+            if block_num == 0:
+                block_num = 3
+            action.block_id = block_num
+            color = ''
+            if action_num >= 0 and action_num <=2:
+                color = 'red'
+            elif action_num >= 3 and action_num <= 5:
+                color = 'green'
+            else:
+                color = 'blue'
+            action.robot_db = color
 
-
+            # Perform the chosen action
+            self.bot_action.publish(action)
 
         def run(self):
                 rospy.spin()
 
 if __name__ == '__main__':
-
-    #TODO Change this init_node
-        rospy.init_node('line_QLearner')
+        rospy.init_node('q_learning')
         q_learner = QLearner()
         q_learner.run()
