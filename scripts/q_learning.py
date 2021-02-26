@@ -18,7 +18,7 @@ class QLearner:
             self.q_reward = rospy.Subscriber('/q_learning/reward', QLearningReward, self.q_algorithm_pt2)
             self.q_matrix_pub = rospy.Publisher('/q_learning/q_matrix', QMatrix, queue_size=10)
             self.bot_action = rospy.Publisher('/q_learning/robot_action', RobotMoveDBToBlock, queue_size=10)
-
+            rospy.sleep(1)
             self.initialize_state_matrix()
             self.initialize_action_matrix()
 
@@ -26,17 +26,15 @@ class QLearner:
             self.alpha = 1
             self.gamma = 1
             self.t = 0
-            self.converge_threshold = 5
+            self.converge_threshold = 20
             self.converge_count = 0
             # Always begin with all blocks at the origin
             self.actual_state = 0
             self.initialize_q_matrix()
 
-            self.q_algorithm_pt1(self.actual_state)
-            self.has_converged()
+            self.q_algorithm_pt1()
             # TODO remove this (goes in the sub)
-            self.q_algorithm_pt2(1)
-            self.has_converged()
+            # self.q_algorithm_pt2(1)
 
             self.initialized = True
             print('Initiliazation Complete')
@@ -129,17 +127,17 @@ class QLearner:
                                 break
 
                 self.action_matrix[x] = possible_act
+            # print('Action Matrix Initialized')
 
 
         # This creates the QMatrix
-        # TODO publish initial q matrix
         def initialize_q_matrix(self):
             h = Header()
             # TODO https://answers.ros.org/question/60209/what-is-the-proper-way-to-create-a-header-with-python/
             h.stamp = rospy.Time.now()
             h.frame_id = "q_matrix"
             temp = QMatrixRow()
-            temp.q_matrix_row = [0] * 9
+            temp.q_matrix_row = [-1] * 9
 
             self.actual_q_matrix = QMatrix()
             self.actual_q_matrix.header = h
@@ -149,9 +147,15 @@ class QLearner:
             # This variable is used to determine whether the matrix has converged
             self.prev_q_matrix = copy.deepcopy(self.actual_q_matrix)
 
+            # Publish the initial, empty q_matrix to the topic
+            self.q_matrix_pub.publish(self.actual_q_matrix)
+
+            # print('Q Matrix Initialized')
+
         # Queries the action matrix to determine the valid actions from the given state.
         # Output is an array of valid actions
-        def valid_actions(self, state):
+        def valid_actions(self):
+            state = self.actual_state
             all_actions = self.action_matrix[state]
             valid = []
             for x in all_actions:
@@ -192,8 +196,8 @@ class QLearner:
         # This function runs selects and executes a randomly chosen action
         # q_algorithm_pt2 is called when a QLearningReward is published (this updates q_matrix)
         # with appropriate reward
-        def q_algorithm_pt1(self, state):
-            valid = self.valid_actions(state)
+        def q_algorithm_pt1(self):
+            valid = self.valid_actions()
 
             # Select a random actions
             self.action_num = valid[random.randint(0, len(valid) - 1)]
@@ -201,7 +205,7 @@ class QLearner:
             block_num = (self.action_num+1)%3
             if block_num == 0:
                 block_num = 3
-            action.block_id = self.action_num
+            action.block_id = block_num
             color = ''
             if self.action_num >= 0 and self.action_num <=2:
                 color = 'red'
@@ -210,15 +214,28 @@ class QLearner:
             else:
                 color = 'blue'
             action.robot_db = color
+            # TODO testing
+            self.color1 = color
+            self.block1 = block_num
+            # if self.t%3==0:
+            #     action.robot_db = 'green'
+            #     action.block_id = 1
 
             # Perform the chosen action
+            rospy.sleep(0.2)
             self.bot_action.publish(action)
 
         # Callback function for /q_learning/reward topic. Updates the matrix, and increments the time
         # Additionally, checks to see if Q has converged and, if no, runs the algorithm again
-        def q_algorithm_pt2(self, reward):
+        def q_algorithm_pt2(self, q_reward):
             initial_val = copy.deepcopy(self.actual_q_matrix.q_matrix[self.actual_state].q_matrix_row[self.action_num])
-            print(initial_val)
+            reward = q_reward.reward
+            if reward == 100:
+                # print("right at " + str(self.t))
+                print('Time ' + str(self.t))
+                print(self.color1 + ' to ' + str(self.block1))
+            # else:
+            #     print("wrong with " + str(reward))
 
             # Find the next state. This is used to get the max reward from the next state
             next_state = self.determine_next_state()
@@ -230,9 +247,10 @@ class QLearner:
             # print("Max next state reward: " + str(next_state_reward))
 
             # Calculate the net reward value to put into the q_matrix for this action
-            next_state_reward = 500
+            # next_state_reward = 500 TODO delete
             future_val = self.gamma * (next_state_reward - initial_val)
             total_val = initial_val + self.alpha * (reward + future_val)
+            # print(total_val)
 
             # Update the value in the q_matrix
             z = copy.deepcopy(self.actual_q_matrix.q_matrix[self.actual_state])
@@ -242,6 +260,29 @@ class QLearner:
             # Update the current state and increment the time
             self.actual_state = next_state
             self.t = self.t + 1
+
+            # If all three DBs have been moved, the world has reset and we
+            # likewise need to reset the state to 0
+            if self.t%3 == 0:
+                self.actual_state = 0
+                rospy.sleep(0.5)
+
+            # Publish updated q_matrix
+            self.q_matrix_pub.publish(self.actual_q_matrix)
+
+            # Check to see if converged. If not, begin loop again
+            self.has_converged()
+            if not self.exit_algo:
+                self.q_algorithm_pt1()
+            else:
+                print('---Matrix has Converged---')
+                print(self.actual_q_matrix)
+                print(self.converge_count)
+                print(self.t)
+                print('---Matrix has Converged---')
+
+            if self.t == 100:
+                print(self.actual_q_matrix)
 
         # This function serves as the while loop in the q algorithm. It checks
         # to see if our q_matrix has converged after every iteration of the q_algorithm.
@@ -259,19 +300,23 @@ class QLearner:
                     if current.q_matrix_row[y] != previous.q_matrix_row[y]:
                         self.exit_algo = False
                         same = False
-                        print('not converged')
+                        # print('not converged')
                 # A previous state in the q_matrix was divergent
                 if not same:
                     break
             # Q_matrix has converged
             if same:
                 self.converge_count = self.converge_count + 1
+                # print(self.converge_count)
+                # print(self.t)
                 if self.converge_count >= self.converge_threshold:
                     self.exit_algo = True
-                    print('converegd')
+                    print('converged')
                 else:
                     self.prev_q_matrix = copy.deepcopy(self.actual_q_matrix)
-                    print('converegd - not at threshold')
+                    print('converged - not at threshold')
+            else:
+                self.converge_count = 0
 
         def run(self):
                 rospy.spin()
