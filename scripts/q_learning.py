@@ -11,6 +11,7 @@ class QLearner:
         def __init__(self):
             #Once everything is initialized will set to true
             self.initialized = False
+            self.exit_algo = False
 
             #set up Subscriber and Publishers
             #TODO link correct function for Sub
@@ -25,13 +26,17 @@ class QLearner:
             self.alpha = 1
             self.gamma = 1
             self.t = 0
+            self.converge_threshold = 5
+            self.converge_count = 0
             # Always begin with all blocks at the origin
             self.actual_state = 0
             self.initialize_q_matrix()
 
             self.q_algorithm_pt1(self.actual_state)
+            self.has_converged()
             # TODO remove this (goes in the sub)
             self.q_algorithm_pt2(1)
+            self.has_converged()
 
             self.initialized = True
             print('Initiliazation Complete')
@@ -141,6 +146,9 @@ class QLearner:
             # 64 different states = 64 rows, with 9 possible actions each (columns)
             self.actual_q_matrix.q_matrix = [temp] * 64
 
+            # This variable is used to determine whether the matrix has converged
+            self.prev_q_matrix = copy.deepcopy(self.actual_q_matrix)
+
         # Queries the action matrix to determine the valid actions from the given state.
         # Output is an array of valid actions
         def valid_actions(self, state):
@@ -214,32 +222,56 @@ class QLearner:
 
             # Find the next state. This is used to get the max reward from the next state
             next_state = self.determine_next_state()
-            # Set this to arbitrarily low  (negative) number
+            # Set this to arbitrarily low (negative) number
             next_state_reward = -1000000
             for x in self.actual_q_matrix.q_matrix[next_state].q_matrix_row:
                 if x > next_state_reward:
                     next_state_reward = x
-            print("Max next state reward: " + str(next_state_reward))
+            # print("Max next state reward: " + str(next_state_reward))
 
+            # Calculate the net reward value to put into the q_matrix for this action
             next_state_reward = 500
             future_val = self.gamma * (next_state_reward - initial_val)
             total_val = initial_val + self.alpha * (reward + future_val)
-            print(self.actual_q_matrix)
 
             # Update the value in the q_matrix
-            z = copy.deepcopy(self.actual_q_matrix.q_matrix[1])
+            z = copy.deepcopy(self.actual_q_matrix.q_matrix[self.actual_state])
             z.q_matrix_row[self.action_num] = total_val
-            self.actual_q_matrix.q_matrix[1] = z
+            self.actual_q_matrix.q_matrix[self.actual_state] = z
+
             # Update the current state and increment the time
             self.actual_state = next_state
             self.t = self.t + 1
 
-            print(self.actual_q_matrix)
-            print('temp')
-            print(self.actual_q_matrix.q_matrix[1])
-            print(self.actual_q_matrix.q_matrix[50])
-
-
+        # This function serves as the while loop in the q algorithm. It checks
+        # to see if our q_matrix has converged after every iteration of the q_algorithm.
+        # Once the algorithm has converged a pre-determined number of times (as determined by)
+        # self.converge_threshold), it will flip a flag so the program knows to exit the q q_learning
+        # algorithm
+        # The algorithm checks convergence by comparing values in the current q_matrix and a copy
+        # of the previous iteration's q_matrix
+        def has_converged(self):
+            same = True
+            for x in range(0,64):
+                current = self.actual_q_matrix.q_matrix[x]
+                previous = self.prev_q_matrix.q_matrix[x]
+                for y in range(0,9):
+                    if current.q_matrix_row[y] != previous.q_matrix_row[y]:
+                        self.exit_algo = False
+                        same = False
+                        print('not converged')
+                # A previous state in the q_matrix was divergent
+                if not same:
+                    break
+            # Q_matrix has converged
+            if same:
+                self.converge_count = self.converge_count + 1
+                if self.converge_count >= self.converge_threshold:
+                    self.exit_algo = True
+                    print('converegd')
+                else:
+                    self.prev_q_matrix = copy.deepcopy(self.actual_q_matrix)
+                    print('converegd - not at threshold')
 
         def run(self):
                 rospy.spin()
