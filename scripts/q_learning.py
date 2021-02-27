@@ -30,7 +30,7 @@ class QLearner:
             self.alpha = 1
             self.gamma = 1
             self.t = 0
-            self.converge_threshold = 5
+            self.converge_threshold = 20
             self.converge_count = 0
             # Always begin with all blocks at the origin
             self.actual_state = 0
@@ -222,23 +222,21 @@ class QLearner:
             self.color1 = color
             self.block1 = block_num
             # TODO remove
-            if self.t%3==0:
-                action.robot_db = 'green'
-                action.block_id = 1
-                self.action_num = 3
-            elif self.t%3 == 1:
-                action.robot_db = 'red'
-                action.block_id =3
-                self.action_num = 2
-            else:
-                action.robot_db = 'blue'
-                action.block_id =2
-                self.action_num = 7
+            # if self.t%3==0:
+            #     action.robot_db = 'green'
+            #     action.block_id = 1
+            #     self.action_num = 3
+            # elif self.t%3 == 1:
+            #     action.robot_db = 'red'
+            #     action.block_id =3
+            #     self.action_num = 2
+            # else:
+            #     action.robot_db = 'blue'
+            #     action.block_id =2
+            #     self.action_num = 7
 
             # Perform the chosen action
-            rospy.sleep(0.25)
             self.bot_action.publish(action)
-            rospy.sleep(0.25)
 
         # Callback function for /q_learning/reward topic. Updates the matrix, and increments the time
         # Additionally, checks to see if Q has converged and, if no, runs the algorithm again
@@ -292,7 +290,7 @@ class QLearner:
                 # likewise need to reset the state to 0
                 if self.t%3 == 0:
                     self.actual_state = 0
-                    rospy.sleep(0.5)
+                    rospy.sleep(0.25)
 
                 # Publish updated q_matrix
                 self.q_matrix_pub.publish(self.actual_q_matrix)
@@ -321,33 +319,36 @@ class QLearner:
         # The algorithm checks convergence by comparing values in the current q_matrix and a copy
         # of the previous iteration's q_matrix
         def has_converged(self):
-            same = True
-            for x in range(0,64):
-                current = self.actual_q_matrix.q_matrix[x]
-                previous = self.prev_q_matrix.q_matrix[x]
-                for y in range(0,9):
-                    if current.q_matrix_row[y] != previous.q_matrix_row[y]:
-                        self.exit_algo = False
-                        same = False
-                        # print('not converged')
-                # A previous state in the q_matrix was divergent
-                if not same:
-                    break
-            # Q_matrix has converged
-            if same:
-                self.converge_count = self.converge_count + 1
-                # print(self.converge_count)
-                # print(self.t)
-                if self.converge_count >= self.converge_threshold:
-                    self.exit_algo = True
-                    print('converged')
+            if self.t%3 != 0:
+                self.exit_algo = False
+            else:
+                same = True
+                for x in range(0,64):
+                    current = self.actual_q_matrix.q_matrix[x]
+                    previous = self.prev_q_matrix.q_matrix[x]
+                    for y in range(0,9):
+                        if current.q_matrix_row[y] != previous.q_matrix_row[y]:
+                            self.exit_algo = False
+                            same = False
+                            # print('not converged')
+                    # A previous state in the q_matrix was divergent
+                    if not same:
+                        break
+                # Q_matrix has converged
+                if same:
+                    self.converge_count = self.converge_count + 1
+                    # print(self.converge_count)
+                    # print(self.t)
+                    if self.converge_count >= self.converge_threshold:
+                        self.exit_algo = True
+                        print('converged')
+                    else:
+                        self.prev_q_matrix = copy.deepcopy(self.actual_q_matrix)
+                        print('converged - not at threshold')
                 else:
                     self.prev_q_matrix = copy.deepcopy(self.actual_q_matrix)
-                    print('converged - not at threshold')
-            else:
-                self.prev_q_matrix = copy.deepcopy(self.actual_q_matrix)
-                self.converge_count = 0
-                print('DIVERGE')
+                    self.converge_count = 0
+                    print('DIVERGE')
 
         def run(self):
                 rospy.spin()
