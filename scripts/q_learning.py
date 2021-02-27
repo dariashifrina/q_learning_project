@@ -13,14 +13,16 @@ class QLearner:
             self.initialized = False
             self.exit_algo = False
 
+            # Used to throw out bogus rewards. Believe this is a race condition
+            # (see writeup for explanation, someone else had this problem on Slack too)
+            self.last_msg_time = 0
+
             #set up Subscriber and Publishers
             #TODO link correct function for Sub
             self.q_reward = rospy.Subscriber('/q_learning/reward', QLearningReward, self.q_algorithm_pt2)
             self.q_matrix_pub = rospy.Publisher('/q_learning/q_matrix', QMatrix, queue_size=10)
             self.bot_action = rospy.Publisher('/q_learning/robot_action', RobotMoveDBToBlock, queue_size=10)
-            print('THE')
             rospy.sleep(1)
-            print('got here')
             self.initialize_state_matrix()
             self.initialize_action_matrix()
 
@@ -28,7 +30,7 @@ class QLearner:
             self.alpha = 1
             self.gamma = 1
             self.t = 0
-            self.converge_threshold = 20
+            self.converge_threshold = 5
             self.converge_count = 0
             # Always begin with all blocks at the origin
             self.actual_state = 0
@@ -139,7 +141,7 @@ class QLearner:
             h.stamp = rospy.Time.now()
             h.frame_id = "q_matrix"
             temp = QMatrixRow()
-            temp.q_matrix_row = [-1] * 9
+            temp.q_matrix_row = [0] * 9
 
             self.actual_q_matrix = QMatrix()
             self.actual_q_matrix.header = h
@@ -223,78 +225,93 @@ class QLearner:
             if self.t%3==0:
                 action.robot_db = 'green'
                 action.block_id = 1
+                self.action_num = 3
             elif self.t%3 == 1:
                 action.robot_db = 'red'
                 action.block_id =3
+                self.action_num = 2
             else:
-
-                    action.robot_db = 'blue'
-                    action.block_id =2
+                action.robot_db = 'blue'
+                action.block_id =2
+                self.action_num = 7
 
             # Perform the chosen action
             rospy.sleep(0.25)
             self.bot_action.publish(action)
+            rospy.sleep(0.25)
 
         # Callback function for /q_learning/reward topic. Updates the matrix, and increments the time
         # Additionally, checks to see if Q has converged and, if no, runs the algorithm again
         def q_algorithm_pt2(self, q_reward):
-            initial_val = copy.deepcopy(self.actual_q_matrix.q_matrix[self.actual_state].q_matrix_row[self.action_num])
-            reward = q_reward.reward
-            if reward == 100:
-                # print("right at " + str(self.t))
-                print('Time ' + str(self.t) + self.color1 + ' to ' + str(self.block1))
-            # else:
-            #     print("wrong with " + str(reward))
+            # Used to determine whether reward occurred too quickly and show be ignored
+            # See writeup for explanation
+            msg_time = q_reward.header.stamp.secs + (q_reward.header.stamp.nsecs/1000000000)
+            if self.last_msg_time + 0.08 < msg_time:
+                initial_val = copy.deepcopy(self.actual_q_matrix.q_matrix[self.actual_state].q_matrix_row[self.action_num])
+                reward = q_reward.reward
+                # if reward == 100:
+                #     # print("right at " + str(self.t))
+                #     print('Time ' + str(self.t) + self.color1 + ' to ' + str(self.block1))
+                # else:
+                #     print("wrong with " + str(reward))
 
-            # Find the next state. This is used to get the max reward from the next state
-            next_state = self.determine_next_state()
-            # Set this to arbitrarily low (negative) number
-            next_state_reward = -1000000
-            j = copy.deepcopy(self.actual_q_matrix.q_matrix[next_state].q_matrix_row)
-            for x in j:
-                if x > next_state_reward:
-                    next_state_reward = x
-            # print("Max next state reward: " + str(next_state_reward))
+                # Find the next state. This is used to get the max reward from the next state
+                next_state = self.determine_next_state()
+                # Set this to arbitrarily low (negative) number
+                next_state_reward = -1000000
+                j = copy.deepcopy(self.actual_q_matrix.q_matrix[next_state].q_matrix_row)
+                for x in j:
+                    if x > next_state_reward:
+                        next_state_reward = x
+                # print("Max next state reward: " + str(next_state_reward))
 
-            # Calculate the net reward value to put into the q_matrix for this action
-            # next_state_reward = 500 TODO delete
-            future_val = self.gamma * (next_state_reward - initial_val)
-            total_val = initial_val + self.alpha * (reward + future_val)
-            # print(total_val)
+                # Calculate the net reward value to put into the q_matrix for this action
+                # next_state_reward = 500 TODO delete
+                future_val = self.gamma * (next_state_reward - initial_val)
+                # If this is the last action before the world resets, do not include a future value
+                # (q_matrix will not have an value for the future state, causing the value to be negative)
+                if (self.t+1)%3 == 0:
+                    total_val = initial_val + self.alpha * (reward - initial_val)
+                else:
+                    total_val = initial_val + self.alpha * (reward + future_val)
+                # print(total_val)
 
-            # Update the value in the q_matrix
-            z = copy.deepcopy(self.actual_q_matrix.q_matrix[self.actual_state])
-            z.q_matrix_row[self.action_num] = total_val
-            self.actual_q_matrix.q_matrix[self.actual_state] = z
-            print('Time ' + str(self.t) + ', State ' + str(self.actual_state) + ', Val ' + str(z))
-            print('Action '+ str(self.action_num))
+                # Update the value in the q_matrix
+                z = copy.deepcopy(self.actual_q_matrix.q_matrix[self.actual_state])
+                z.q_matrix_row[self.action_num] = total_val
+                self.actual_q_matrix.q_matrix[self.actual_state] = z
+                print('Time ' + str(self.t) + ', State ' + str(self.actual_state) + ', Next ' + str(next_state))
+                print('Action '+ str(self.action_num) + ', Value ' + str(z))
+                print('Reward ' + str(reward) + ', Next State ' + str(next_state_reward) + ', Future ' + str(future_val))
 
-            # Update the current state and increment the time
-            self.actual_state = next_state
-            self.t = self.t + 1
+                # Update the current state and increment the time
+                self.actual_state = next_state
+                self.t = self.t + 1
 
-            # If all three DBs have been moved, the world has reset and we
-            # likewise need to reset the state to 0
-            if self.t%3 == 0:
-                self.actual_state = 0
-                rospy.sleep(0.5)
+                # If all three DBs have been moved, the world has reset and we
+                # likewise need to reset the state to 0
+                if self.t%3 == 0:
+                    self.actual_state = 0
+                    rospy.sleep(0.5)
 
-            # Publish updated q_matrix
-            self.q_matrix_pub.publish(self.actual_q_matrix)
+                # Publish updated q_matrix
+                self.q_matrix_pub.publish(self.actual_q_matrix)
 
-            # Check to see if converged. If not, begin loop again
-            self.has_converged()
-            if not self.exit_algo:
-                self.q_algorithm_pt1()
-            else:
-                print('---Matrix has Converged---')
-                print(self.actual_q_matrix)
-                print(self.converge_count)
-                print(self.t)
-                print('---Matrix has Converged---')
+                # Check to see if converged. If not, begin loop again
+                self.has_converged()
+                if not self.exit_algo:
+                    self.q_algorithm_pt1()
+                else:
+                    print('---Matrix has Converged---')
+                    print(self.actual_q_matrix)
+                    print(self.converge_count)
+                    print(self.t)
+                    print('---Matrix has Converged---')
 
-            if self.t == 100:
-                print(self.actual_q_matrix)
+                if self.t == 100:
+                    print(self.actual_q_matrix)
+
+            self.last_msg_time = msg_time
 
         # This function serves as the while loop in the q algorithm. It checks
         # to see if our q_matrix has converged after every iteration of the q_algorithm.
@@ -328,7 +345,9 @@ class QLearner:
                     self.prev_q_matrix = copy.deepcopy(self.actual_q_matrix)
                     print('converged - not at threshold')
             else:
+                self.prev_q_matrix = copy.deepcopy(self.actual_q_matrix)
                 self.converge_count = 0
+                print('DIVERGE')
 
         def run(self):
                 rospy.spin()
