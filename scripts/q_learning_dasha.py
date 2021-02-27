@@ -6,6 +6,8 @@ from geometry_msgs.msg import Twist
 from q_learning_project.msg import QMatrix, QMatrixRow, RobotMoveDBToBlock, QLearningReward
 import moveit_commander
 import keras_ocr
+from math import pi
+
 
 class QLearner:
 
@@ -26,7 +28,9 @@ class QLearner:
 
             # # set up ROS / OpenCV bridge
             self.bridge = cv_bridge.CvBridge()
+            #self.movement = False
             self.movement = True
+            self.block = False
     
             # # subscribe to the robot's RGB camera data stream
             #self.image_sub = rospy.Subscriber('camera/rgb/image_raw', Image, self.image_callback)
@@ -47,6 +51,7 @@ class QLearner:
             self.image_sub = rospy.Subscriber('camera/rgb/image_raw', Image, self.image_callback)
             self.navigator = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
             rospy.Subscriber("/scan", LaserScan, self.process_scan)
+            self.turn = False
 
         # The state matrix is a dict where the key is the state number and the value is an array
         # contain the red, green, and blue dumbell locations in that order.
@@ -91,6 +96,7 @@ class QLearner:
                 self.move_group_arm.go(arm_joint_goal, wait=True)
                 # Calling ``stop()`` ensures that there is no residual movement
                 self.move_group_arm.stop() 
+                self.turn = True
 
 
         def initialize_state_matrix(self):
@@ -175,51 +181,76 @@ class QLearner:
         def image_callback(self, msg):
 
                 self.view = self.bridge.imgmsg_to_cv2(msg,desired_encoding='bgr8')
-                #self.find_db()
-                self.find_block()
 
+        def turn_around(self):
+            if(self.initialized):
+                print("here")
+                relative_angle = pi
+                angular_speed = 0.2
+                twister = Twist()
+                twister.angular.z = -abs(angular_speed)
+                self.navigator.publish(twister)
+                current_angle = 0
+                firstTime = rospy.Time.now().to_sec()
+                while current_angle < relative_angle:
+                    curTime = rospy.Time.now().to_sec() - firstTime
+                    current_angle = angular_speed*(curTime)
+                twister.angular.z = 0
+                self.navigator.publish(twister)
+                print("done")
+                self.turn = False
+                self.block = True
+                #self.done = False
 
         #function for detecting numbers and navigating to the block
         #currently just goes to the first number possible
         def find_block(self):
-            image = self.view
-            pipeline = keras_ocr.pipeline.Pipeline()
-            prediction_groups = pipeline.recognize([image])
-            #print(prediction_groups)
-            print(prediction_groups[0][0][1])
-            min_x = 1000
-            max_x = 0
-            min_y = 1000
-            max_y = 0
-            for coords in prediction_groups[0][0][1]:
-                if coords[0] < min_x:
-                    min_x = coords[0]
-                if coords[0] > max_x:
-                    max_x = coords[0]
-                if coords[1] < min_y:
-                    min_y = coords[1]
-                if coords[1] > max_y:
-                    max_y = coords[1]
+            while(self.block):
+                print("finding block")
+                image = self.view
+                h, w, d = image.shape
 
-            cx = int((min_x + max_x) / 2)
-            cy = int((min_y + max_y) / 2)
-            cv2.circle(image, (cx, cy), 20, (255,0,0), -1)
-            #cv2.imshow("window", image)
-            #cv2.waitKey(3)
-            prop_control = 0.3
-            center = (max_x - min_x)/2
-            error = (center - cx)
-    
-            twister = Twist()
-            twister.linear.x = 0.3
-            twister.angular.z = prop_control * error*3.1415/180
-    
-            self.navigator.publish(twister)
+                #cv2.imshow("window", image)
+                #cv2.waitKey(3)
+                pipeline = keras_ocr.pipeline.Pipeline()
+                #rospy.sleep(1)
+                prediction_groups = pipeline.recognize([image])
+                #print(prediction_groups)
+                #print(prediction_groups[0][0][1])
+                min_x = 1000
+                max_x = 0
+                min_y = 1000
+                max_y = 0
+                for coords in prediction_groups[0][0][1]:
+                    if coords[0] < min_x:
+                        min_x = coords[0]
+                    if coords[0] > max_x:
+                        max_x = coords[0]
+                    if coords[1] < min_y:
+                        min_y = coords[1]
+                    if coords[1] > max_y:
+                        max_y = coords[1]
+
+                cx = int((min_x + max_x) / 2)
+                cy = int((min_y + max_y) / 2)
+                cv2.circle(image, (cx, cy), 20, (255,0,0), -1)
+                #cv2.imshow("window", image)
+                #cv2.waitKey(3)
+                prop_control = 0.3
+                center = w/2
+                error = (center - cx)
+        
+                twister = Twist()
+                twister.linear.x = 0.3
+                twister.angular.z = prop_control * error*3.1415/180
+        
+                self.navigator.publish(twister)
 
 
         #function for finding dumbbell and navigating to it
-        #currently goes to red dumbbell
-        def find_db(self):
+        #currently goes to red dumbbel
+        def find_red_db(self):
+            if(self.initialized):
                 image = self.view
                 hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
@@ -227,7 +258,33 @@ class QLearner:
                 lower_red = numpy.array([0,50,50])
                 upper_red = numpy.array([10,255,255])
                 mask = cv2.inRange(hsv, lower_red, upper_red)
-                #
+
+                self.find_db(image, mask)
+
+        def find_green_db(self):
+            if(self.initialized):
+                image = self.view
+                hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+
+                # # TODO: define the upper and lower bounds for what should be considered 'yellow'
+                lower_green = numpy.array([50,100,100])
+                upper_green = numpy.array([70,255,255])
+                mask = cv2.inRange(hsv, lower_green, upper_green)
+
+                self.find_db(image, mask)
+
+        def find_blue_db(self):
+                image = self.view
+                hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+
+                # # TODO: define the upper and lower bounds for what should be considered 'yellow'
+                lower_blue = numpy.array([110,50,50])
+                upper_blue = numpy.array([130,255,255])
+                mask = cv2.inRange(hsv, lower_blue, upper_blue)
+
+                self.find_db(image, mask)
+
+        def find_db(self,image, mask):
                 # # this erases all pixels that aren't yellow
                 h, w, d = image.shape
                 search_top = int(h/2)
@@ -261,13 +318,15 @@ class QLearner:
                             twister.angular.z = prop_control * error*3.1415/180
                     
                             self.navigator.publish(twister)
-                            
+                #self.turn_around()
+                #self.done = True
                 #cv2.imshow("window", image)
                 #cv2.waitKey(3)
 
         def process_scan(self, data):
             twister = Twist()
             if self.movement:
+                self.find_red_db()
                 if data.ranges[0] <= 0.28:
                     print("robot slow down")
                     self.movement = False
@@ -277,6 +336,20 @@ class QLearner:
                     #self.dumbbell_grasp_position()
 
                     self.dumbbell_pickup_position()      
+            if self.block:
+                self.find_block()
+                '''if data.ranges[0] <= 0.28:
+                    print("robot slow down")
+                    self.block = False
+                    # Go forward if not close enough to wall.
+                    twister.linear.x = 0
+                    self.navigator.publish(twister)
+                    self.dumbbell_grasp_position()'''
+            if(self.turn):
+                self.turn_around()
+
+
+                    #self.dumbbell_pickup_position()     
 
         def run(self):
                 rospy.spin()
