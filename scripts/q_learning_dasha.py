@@ -5,6 +5,7 @@ from sensor_msgs.msg import Image, LaserScan
 from geometry_msgs.msg import Twist
 from q_learning_project.msg import QMatrix, QMatrixRow, RobotMoveDBToBlock, QLearningReward
 import moveit_commander
+import keras_ocr
 
 class QLearner:
 
@@ -51,7 +52,7 @@ class QLearner:
         # contain the red, green, and blue dumbell locations in that order.
         # For reference about locations: 0 = Origin,1 = Block 1, 2 = Block 2, 3 = Block 3
 
-
+        #call this to make robot do neutral grasp n position
         def normal_grasp(self):
              if(self.initialized):
                 print("ready to scoop dumbbell")
@@ -65,6 +66,7 @@ class QLearner:
                 self.move_group_gripper.go(gripper_joint_goal, wait=True)
                 self.move_group_gripper.stop()           
 
+        #call this to make robot stoop and open grasp. ready to grip dumbbell
         def dumbbell_grasp_position(self):
             if(self.initialized):
                 print("ready to scoop dumbbell")
@@ -78,6 +80,7 @@ class QLearner:
                 self.move_group_gripper.go(gripper_joint_goal, wait=True)
                 self.move_group_gripper.stop()
 
+        #call this to make robot close grasp and lift joints to carry dumbbell
         def dumbbell_pickup_position(self):
             if(self.initialized):
                 print("pickup dumbbell")
@@ -171,8 +174,53 @@ class QLearner:
 
         def image_callback(self, msg):
 
-                # converts the incoming ROS message to OpenCV format and HSV (hue, saturation, value)
-                image = self.bridge.imgmsg_to_cv2(msg,desired_encoding='bgr8')
+                self.view = self.bridge.imgmsg_to_cv2(msg,desired_encoding='bgr8')
+                #self.find_db()
+                self.find_block()
+
+
+        #function for detecting numbers and navigating to the block
+        #currently just goes to the first number possible
+        def find_block(self):
+            image = self.view
+            pipeline = keras_ocr.pipeline.Pipeline()
+            prediction_groups = pipeline.recognize([image])
+            #print(prediction_groups)
+            print(prediction_groups[0][0][1])
+            min_x = 1000
+            max_x = 0
+            min_y = 1000
+            max_y = 0
+            for coords in prediction_groups[0][0][1]:
+                if coords[0] < min_x:
+                    min_x = coords[0]
+                if coords[0] > max_x:
+                    max_x = coords[0]
+                if coords[1] < min_y:
+                    min_y = coords[1]
+                if coords[1] > max_y:
+                    max_y = coords[1]
+
+            cx = int((min_x + max_x) / 2)
+            cy = int((min_y + max_y) / 2)
+            cv2.circle(image, (cx, cy), 20, (255,0,0), -1)
+            #cv2.imshow("window", image)
+            #cv2.waitKey(3)
+            prop_control = 0.3
+            center = (max_x - min_x)/2
+            error = (center - cx)
+    
+            twister = Twist()
+            twister.linear.x = 0.3
+            twister.angular.z = prop_control * error*3.1415/180
+    
+            self.navigator.publish(twister)
+
+
+        #function for finding dumbbell and navigating to it
+        #currently goes to red dumbbell
+        def find_db(self):
+                image = self.view
                 hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
                 # # TODO: define the upper and lower bounds for what should be considered 'yellow'
