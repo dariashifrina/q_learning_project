@@ -18,7 +18,9 @@ class QLearner:
             self.q_reward = rospy.Subscriber('/q_learning/reward', QLearningReward, self.q_algorithm_pt2)
             self.q_matrix_pub = rospy.Publisher('/q_learning/q_matrix', QMatrix, queue_size=10)
             self.bot_action = rospy.Publisher('/q_learning/robot_action', RobotMoveDBToBlock, queue_size=10)
+            print('THE')
             rospy.sleep(1)
+            print('got here')
             self.initialize_state_matrix()
             self.initialize_action_matrix()
 
@@ -217,12 +219,20 @@ class QLearner:
             # TODO testing
             self.color1 = color
             self.block1 = block_num
-            # if self.t%3==0:
-            #     action.robot_db = 'green'
-            #     action.block_id = 1
+            # TODO remove
+            if self.t%3==0:
+                action.robot_db = 'green'
+                action.block_id = 1
+            elif self.t%3 == 1:
+                action.robot_db = 'red'
+                action.block_id =3
+            else:
+
+                    action.robot_db = 'blue'
+                    action.block_id =2
 
             # Perform the chosen action
-            rospy.sleep(0.2)
+            rospy.sleep(0.25)
             self.bot_action.publish(action)
 
         # Callback function for /q_learning/reward topic. Updates the matrix, and increments the time
@@ -232,8 +242,7 @@ class QLearner:
             reward = q_reward.reward
             if reward == 100:
                 # print("right at " + str(self.t))
-                print('Time ' + str(self.t))
-                print(self.color1 + ' to ' + str(self.block1))
+                print('Time ' + str(self.t) + self.color1 + ' to ' + str(self.block1))
             # else:
             #     print("wrong with " + str(reward))
 
@@ -241,7 +250,8 @@ class QLearner:
             next_state = self.determine_next_state()
             # Set this to arbitrarily low (negative) number
             next_state_reward = -1000000
-            for x in self.actual_q_matrix.q_matrix[next_state].q_matrix_row:
+            j = copy.deepcopy(self.actual_q_matrix.q_matrix[next_state].q_matrix_row)
+            for x in j:
                 if x > next_state_reward:
                     next_state_reward = x
             # print("Max next state reward: " + str(next_state_reward))
@@ -256,6 +266,8 @@ class QLearner:
             z = copy.deepcopy(self.actual_q_matrix.q_matrix[self.actual_state])
             z.q_matrix_row[self.action_num] = total_val
             self.actual_q_matrix.q_matrix[self.actual_state] = z
+            print('Time ' + str(self.t) + ', State ' + str(self.actual_state) + ', Val ' + str(z))
+            print('Action '+ str(self.action_num))
 
             # Update the current state and increment the time
             self.actual_state = next_state
