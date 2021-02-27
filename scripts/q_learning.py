@@ -18,7 +18,6 @@ class QLearner:
             self.last_msg_time = 0
 
             #set up Subscriber and Publishers
-            #TODO link correct function for Sub
             self.q_reward = rospy.Subscriber('/q_learning/reward', QLearningReward, self.q_algorithm_pt2)
             self.q_matrix_pub = rospy.Publisher('/q_learning/q_matrix', QMatrix, queue_size=10)
             self.bot_action = rospy.Publisher('/q_learning/robot_action', RobotMoveDBToBlock, queue_size=10)
@@ -36,21 +35,14 @@ class QLearner:
             self.actual_state = 0
             self.initialize_q_matrix()
 
-            self.q_algorithm_pt1()
-            # TODO remove this (goes in the sub)
-            # self.q_algorithm_pt2(1)
-
             self.initialized = True
             print('Initiliazation Complete')
 
-                # # set up ROS / OpenCV bridge
-                # self.bridge = cv_bridge.CvBridge()
-                #
-                # # subscribe to the robot's RGB camera data stream
-                # self.image_sub = rospy.Subscriber('camera/rgb/image_raw',
-                #         Image, self.image_callback)
-                #
-                # self.navigator = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
+            # Begin executing the algorithm
+            # self.robot_command(copy.deepcopy(self.actual_q_matrix), copy.deepcopy(self.state_matrix))
+            self.q_algorithm_pt1()
+
+
 
         # The state matrix is a dict where the key is the state number and the value is an array
         # contain the red, green, and blue dumbell locations in that order.
@@ -131,13 +123,10 @@ class QLearner:
                                 break
 
                 self.action_matrix[x] = possible_act
-            # print('Action Matrix Initialized')
-
 
         # This creates the QMatrix
         def initialize_q_matrix(self):
             h = Header()
-            # TODO https://answers.ros.org/question/60209/what-is-the-proper-way-to-create-a-header-with-python/
             h.stamp = rospy.Time.now()
             h.frame_id = "q_matrix"
             temp = QMatrixRow()
@@ -154,8 +143,6 @@ class QLearner:
             # Publish the initial, empty q_matrix to the topic
             self.q_matrix_pub.publish(self.actual_q_matrix)
 
-            # print('Q Matrix Initialized')
-
         # Queries the action matrix to determine the valid actions from the given state.
         # Output is an array of valid actions
         def valid_actions(self):
@@ -168,9 +155,10 @@ class QLearner:
             return valid
 
         # Given the action performed, this determines the next state
-        # and updates self.actual_state accordingly. This is important for performing the next iteration
-        # of the Q-learning q_algorithm
-        # This determines the next state by simply iterating through the state matrix until it finds the right next state
+        # and updates self.actual_state accordingly. This is important for performing the
+        # next iteration of the Q-learning q_algorithm
+        # This determines the next state by simply iterating through the state matrix until
+         # it finds the right next state
         def determine_next_state(self):
             next_state = copy.deepcopy(self.state_matrix[self.actual_state])
 
@@ -187,15 +175,95 @@ class QLearner:
             else:
                 next_state[2] = block_num
 
-            # Iterate through all 64 states in state matrix until you find the matching next state
+            # Iterate through all 64 states in state matrix until you find the matching
+            # next state
             for x in range(0, 63):
                 test_state = self.state_matrix[x]
                 for y in range(0, 3):
                     if next_state[y] != test_state[y]:
                         break
-                    # Will only get here is the next_state and test_state match exactly (aka found the right state)
+                    # Will only get here is the next_state and test_state match exactly
+                    # (aka found the right state)
                     if y == 2:
                         return x
+
+
+        # After Q_matrix has converged, this command uses the matrix to determine
+        # the order in which the robot should move
+        def robot_command(self, matrix, state_array):
+            current_state = 0
+            number = -1
+            final_order = []
+            taken_action = []
+            for x in range(0,3):
+                # Determine the high value in the q matrix row
+                max_value = -10000
+                for y in range(0,9):
+                    if matrix.q_matrix[current_state].q_matrix_row[y] > max_value:
+                        max_value = matrix.q_matrix[current_state].q_matrix_row[y]
+                # Collect actions that have this max value. Important in case there
+                # are multiple actions that fit the criteria
+                possible_actions = []
+                count = 0
+                for y in range(0,9):
+                    if matrix.q_matrix[current_state].q_matrix_row[y] == max_value:
+                        possible_actions.append(count)
+                    count = count + 1
+                # Choose the action to be taken, making sure that action has not been
+                 # chosen before
+                repeat = True
+                while repeat:
+                    number = numpy.random.choice(possible_actions)
+                    passed = True
+                    for y in taken_action:
+                        if y == number:
+                            passed = False
+                            break
+                    if passed:
+                        repeat = False
+                action = RobotMoveDBToBlock()
+                block_num = (number+1)%3
+                if block_num == 0:
+                    block_num = 3
+                action.block_id = block_num
+                color = ''
+                if number >= 0 and number <=2:
+                    color = 'red'
+                elif number >= 3 and number <= 5:
+                    color = 'green'
+                else:
+                    color = 'blue'
+                action.robot_db = color
+                final_order.append(action)
+                taken_action.append(number)
+                # Determine the next state to look at
+                next_state = state_array[current_state]
+
+                block_num = (number+1)%3
+                if block_num == 0:
+                    block_num = 3
+                # Red dumbell was moved
+                if number/3 < 1:
+                    next_state[0] = block_num
+                # Green dumbell was moved
+                elif number/3 < 2:
+                    next_state[1] = block_num
+                # Blue dumbell was moved
+                else:
+                    next_state[2] = block_num
+
+                # Iterate through all 64 states in state matrix until you find the matching
+                # next state
+                for i in range(0, 63):
+                    test_state = state_array[i]
+                    for y in range(0, 3):
+                        if next_state[y] != test_state[y]:
+                            break
+                        # Will only get here is the next_state and test_state match exactly
+                        # (aka found the right state)
+                        if y == 2:
+                            current_state = i
+            print(final_order)
 
         # This function runs selects and executes a randomly chosen action
         # q_algorithm_pt2 is called when a QLearningReward is published (this updates q_matrix)
@@ -218,22 +286,6 @@ class QLearner:
             else:
                 color = 'blue'
             action.robot_db = color
-            # TODO testing
-            self.color1 = color
-            self.block1 = block_num
-            # TODO remove
-            # if self.t%3==0:
-            #     action.robot_db = 'green'
-            #     action.block_id = 1
-            #     self.action_num = 3
-            # elif self.t%3 == 1:
-            #     action.robot_db = 'red'
-            #     action.block_id =3
-            #     self.action_num = 2
-            # else:
-            #     action.robot_db = 'blue'
-            #     action.block_id =2
-            #     self.action_num = 7
 
             # Perform the chosen action
             self.bot_action.publish(action)
@@ -247,11 +299,6 @@ class QLearner:
             if self.last_msg_time + 0.08 < msg_time:
                 initial_val = copy.deepcopy(self.actual_q_matrix.q_matrix[self.actual_state].q_matrix_row[self.action_num])
                 reward = q_reward.reward
-                # if reward == 100:
-                #     # print("right at " + str(self.t))
-                #     print('Time ' + str(self.t) + self.color1 + ' to ' + str(self.block1))
-                # else:
-                #     print("wrong with " + str(reward))
 
                 # Find the next state. This is used to get the max reward from the next state
                 next_state = self.determine_next_state()
@@ -261,10 +308,8 @@ class QLearner:
                 for x in j:
                     if x > next_state_reward:
                         next_state_reward = x
-                # print("Max next state reward: " + str(next_state_reward))
 
                 # Calculate the net reward value to put into the q_matrix for this action
-                # next_state_reward = 500 TODO delete
                 future_val = self.gamma * (next_state_reward - initial_val)
                 # If this is the last action before the world resets, do not include a future value
                 # (q_matrix will not have an value for the future state, causing the value to be negative)
@@ -272,15 +317,14 @@ class QLearner:
                     total_val = initial_val + self.alpha * (reward - initial_val)
                 else:
                     total_val = initial_val + self.alpha * (reward + future_val)
-                # print(total_val)
 
                 # Update the value in the q_matrix
                 z = copy.deepcopy(self.actual_q_matrix.q_matrix[self.actual_state])
                 z.q_matrix_row[self.action_num] = total_val
                 self.actual_q_matrix.q_matrix[self.actual_state] = z
-                print('Time ' + str(self.t) + ', State ' + str(self.actual_state) + ', Next ' + str(next_state))
-                print('Action '+ str(self.action_num) + ', Value ' + str(z))
-                print('Reward ' + str(reward) + ', Next State ' + str(next_state_reward) + ', Future ' + str(future_val))
+                # print('Time ' + str(self.t) + ', State ' + str(self.actual_state) + ', Next ' + str(next_state))
+                # print('Action '+ str(self.action_num) + ', Value ' + str(z))
+                # print('Reward ' + str(reward) + ', Next State ' + str(next_state_reward) + ', Future ' + str(future_val))
 
                 # Update the current state and increment the time
                 self.actual_state = next_state
@@ -305,14 +349,12 @@ class QLearner:
                     print(self.converge_count)
                     print(self.t)
                     print('---Matrix has Converged---')
-
-                if self.t == 100:
-                    print(self.actual_q_matrix)
+                    self.robot_command(copy.deepcopy(self.actual_q_matrix), copy.deepcopy(self.state_matrix))
 
             self.last_msg_time = msg_time
 
         # This function serves as the while loop in the q algorithm. It checks
-        # to see if our q_matrix has converged after every iteration of the q_algorithm.
+        # to see if our q_matrix has converged after every set of moves (ie. after all DBs are moved).
         # Once the algorithm has converged a pre-determined number of times (as determined by)
         # self.converge_threshold), it will flip a flag so the program knows to exit the q q_learning
         # algorithm
@@ -330,25 +372,23 @@ class QLearner:
                         if current.q_matrix_row[y] != previous.q_matrix_row[y]:
                             self.exit_algo = False
                             same = False
-                            # print('not converged')
                     # A previous state in the q_matrix was divergent
                     if not same:
                         break
                 # Q_matrix has converged
                 if same:
                     self.converge_count = self.converge_count + 1
-                    # print(self.converge_count)
-                    # print(self.t)
                     if self.converge_count >= self.converge_threshold:
                         self.exit_algo = True
-                        print('converged')
                     else:
                         self.prev_q_matrix = copy.deepcopy(self.actual_q_matrix)
-                        print('converged - not at threshold')
                 else:
                     self.prev_q_matrix = copy.deepcopy(self.actual_q_matrix)
                     self.converge_count = 0
-                    print('DIVERGE')
+
+
+
+
 
         def run(self):
                 rospy.spin()
