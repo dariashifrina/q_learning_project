@@ -5,6 +5,7 @@ from sensor_msgs.msg import Image, LaserScan
 from geometry_msgs.msg import Twist
 from q_learning_project.msg import QMatrix, QMatrixRow, RobotMoveDBToBlock, QLearningReward
 import moveit_commander
+import keras_ocr
 
 class QLearner:
 
@@ -21,7 +22,6 @@ class QLearner:
             self.initialize_state_matrix()
             self.initialize_action_matrix()
 
-            self.initialized = True
             print('Initiliazation Complete')
 
             # # set up ROS / OpenCV bridge
@@ -29,10 +29,10 @@ class QLearner:
             self.movement = True
     
             # # subscribe to the robot's RGB camera data stream
-            self.image_sub = rospy.Subscriber('camera/rgb/image_raw', Image, self.image_callback)
-            self.navigator = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
+            #self.image_sub = rospy.Subscriber('camera/rgb/image_raw', Image, self.image_callback)
+            #self.navigator = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
             # ROS subscribe to the Scan topic to monitor items in the robot's va
-            rospy.Subscriber("/scan", LaserScan, self.process_scan)
+            #rospy.Subscriber("/scan", LaserScan, self.process_scan)
 
             # the interface to the group of joints making up the turtlebot3
             # openmanipulator arm
@@ -41,20 +41,58 @@ class QLearner:
             # the interface to the group of joints making up the turtlebot3
             # openmanipulator gripper
             self.move_group_gripper = moveit_commander.MoveGroupCommander("gripper")
-
-            arm_joint_goal = [0.0,0.99,-0.942478,-0.191986]
-
-            self.move_group_arm.go(arm_joint_goal, wait=True)
-            # Calling ``stop()`` ensures that there is no residual movement
-            #self.move_group_arm.stop()
-            gripper_joint_goal = [0.015,0.015]
-            #self.move_group_gripper.set_joint_value_target(GRIPPER_NEUTRAL)
-            self.move_group_gripper.go(gripper_joint_goal, wait=True)
-            #self.move_group_gripper.stop()
+            self.initialized = True
+            #self.normal_grasp()
+            self.dumbbell_grasp_position()
+            self.image_sub = rospy.Subscriber('camera/rgb/image_raw', Image, self.image_callback)
+            self.navigator = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
+            rospy.Subscriber("/scan", LaserScan, self.process_scan)
 
         # The state matrix is a dict where the key is the state number and the value is an array
         # contain the red, green, and blue dumbell locations in that order.
         # For reference about locations: 0 = Origin,1 = Block 1, 2 = Block 2, 3 = Block 3
+
+        #call this to make robot do neutral grasp n position
+        def normal_grasp(self):
+             if(self.initialized):
+                print("ready to scoop dumbbell")
+                arm_joint_goal = [0.0,0,0,0]
+
+                self.move_group_arm.go(arm_joint_goal, wait=True)
+                # Calling ``stop()`` ensures that there is no residual movement
+                self.move_group_arm.stop()
+                gripper_joint_goal = [0.016,0.016]
+                #self.move_group_gripper.set_joint_value_target(GRIPPER_NEUTRAL)
+                self.move_group_gripper.go(gripper_joint_goal, wait=True)
+                self.move_group_gripper.stop()           
+
+        #call this to make robot stoop and open grasp. ready to grip dumbbell
+        def dumbbell_grasp_position(self):
+            if(self.initialized):
+                print("ready to scoop dumbbell")
+                arm_joint_goal = [0.0,0.99,-0.942478,0.309]
+
+                self.move_group_arm.go(arm_joint_goal, wait=True)
+                # Calling ``stop()`` ensures that there is no residual movement
+                self.move_group_arm.stop()
+                gripper_joint_goal = [0.016,0.016]
+                #self.move_group_gripper.set_joint_value_target(GRIPPER_NEUTRAL)
+                self.move_group_gripper.go(gripper_joint_goal, wait=True)
+                self.move_group_gripper.stop()
+
+        #call this to make robot close grasp and lift joints to carry dumbbell
+        def dumbbell_pickup_position(self):
+            if(self.initialized):
+                print("pickup dumbbell")
+                gripper_joint_goal = [0.002,0.002]
+                self.move_group_gripper.go(gripper_joint_goal, wait=True)
+                self.move_group_gripper.stop()      
+                arm_joint_goal = [0.05,0,0,-1.2]
+                self.move_group_arm.go(arm_joint_goal, wait=True)
+                # Calling ``stop()`` ensures that there is no residual movement
+                self.move_group_arm.stop() 
+
+
         def initialize_state_matrix(self):
             self.state_matrix = {}
 
@@ -136,8 +174,53 @@ class QLearner:
 
         def image_callback(self, msg):
 
-                # converts the incoming ROS message to OpenCV format and HSV (hue, saturation, value)
-                image = self.bridge.imgmsg_to_cv2(msg,desired_encoding='bgr8')
+                self.view = self.bridge.imgmsg_to_cv2(msg,desired_encoding='bgr8')
+                #self.find_db()
+                self.find_block()
+
+
+        #function for detecting numbers and navigating to the block
+        #currently just goes to the first number possible
+        def find_block(self):
+            image = self.view
+            pipeline = keras_ocr.pipeline.Pipeline()
+            prediction_groups = pipeline.recognize([image])
+            #print(prediction_groups)
+            print(prediction_groups[0][0][1])
+            min_x = 1000
+            max_x = 0
+            min_y = 1000
+            max_y = 0
+            for coords in prediction_groups[0][0][1]:
+                if coords[0] < min_x:
+                    min_x = coords[0]
+                if coords[0] > max_x:
+                    max_x = coords[0]
+                if coords[1] < min_y:
+                    min_y = coords[1]
+                if coords[1] > max_y:
+                    max_y = coords[1]
+
+            cx = int((min_x + max_x) / 2)
+            cy = int((min_y + max_y) / 2)
+            cv2.circle(image, (cx, cy), 20, (255,0,0), -1)
+            #cv2.imshow("window", image)
+            #cv2.waitKey(3)
+            prop_control = 0.3
+            center = (max_x - min_x)/2
+            error = (center - cx)
+    
+            twister = Twist()
+            twister.linear.x = 0.3
+            twister.angular.z = prop_control * error*3.1415/180
+    
+            self.navigator.publish(twister)
+
+
+        #function for finding dumbbell and navigating to it
+        #currently goes to red dumbbell
+        def find_db(self):
+                image = self.view
                 hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
                 # # TODO: define the upper and lower bounds for what should be considered 'yellow'
@@ -178,25 +261,22 @@ class QLearner:
                             twister.angular.z = prop_control * error*3.1415/180
                     
                             self.navigator.publish(twister)
+                            
                 #cv2.imshow("window", image)
                 #cv2.waitKey(3)
 
         def process_scan(self, data):
             twister = Twist()
             if self.movement:
-                if data.ranges[0] <= 0.35:
-                    print("here")
+                if data.ranges[0] <= 0.28:
+                    print("robot slow down")
                     self.movement = False
                     # Go forward if not close enough to wall.
                     twister.linear.x = 0
                     self.navigator.publish(twister)
-                    gripper_joint_goal = [0.002,0.002]
-                    self.move_group_gripper.go(gripper_joint_goal, wait=True)
-                    self.move_group_gripper.stop()      
-                    arm_joint_goal = [0.05,0,0,0]
-                    self.move_group_arm.go(arm_joint_goal, wait=True)
-                    # Calling ``stop()`` ensures that there is no residual movement
-                    self.move_group_arm.stop()          
+                    #self.dumbbell_grasp_position()
+
+                    self.dumbbell_pickup_position()      
 
         def run(self):
                 rospy.spin()
