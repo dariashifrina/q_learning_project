@@ -2,6 +2,60 @@
 
 ## Team Members: Joshua Soong, Daria Shifrina
 
+## Writeup
+### Objectives
+In tackling this project, we aimed to create a program that would enable our Turtlebot to place three different-colored dumbbells in front of three different-numbered blocks. Although the robot did not know the correct association between the dumbbells and the blocks, it utilized a q-learning algorithm to determine the correct arrangement and then execute the dumbbell placement.
+
+### High-Level Description
+Our program repeatedly queried and received information from outside sources during the course of its reinforcement learning. Specifically, following the concepts of a q-learning algorithm, we posted a randomly selected action to the robot_action topic and received reward information back on the reward topic. To choose the action, we designed several helper functions that first determined which actions were valid from a given state (that is, the existing placement of dumbbells). Reward information was received after every action and this information was immediately logged into our q_matrix. Since the values in the q_matrix were calculated not just from the reward from the immediate state but also from values from one state into the future, the positive reward -- which was only distributed upon the successful placement of all three dumbbells -- slowly trickled down to states where dumbbells were still at the origin (that is, states that had not yet moved all three dumbbells). In this way, our program repeatedly queried the external source in a way that allowed our q_matrix to slowly converge.
+
+### Q-Learning Algorithm
+-   **Action Selection and Execution**
+Our action matrix, which stores valid transitions from one state to another, was created by first defaulting the entire matrix to a -1 value (signifying an invalid transition) and then flipping these -1 values to positive values (signifying valid transitions) when such transitions were determined to not involve a) the movement of multiple dumbbells, b) simultaneous placement of dumbbells at multiple blocks, and c) movement of dumbbells back to the origin. Then, our valid_actions() helper function used this action matrix to compile a list of valid actions. Finally, an action was randomly chosen from this list, packaged into a RobotMoveDBToBlock message, and then executed via publishing to the robot_action topic.
+
+-   **Q-Matrix Update**
+Our algorithm is divided into two functions, one which selects and publishes the action and the other which serves as the callback to our reward topic subscriber and updates the q-matrix. Upon receiving a reward, the second function (q_algorithm_pt2) calculates the net value following the formula given by the algorithm. Finally, it stores this net value into the appropriate place in the q-matrix and, if the matrix has not converged again, starts another iteration of the algorithm.
+
+-   **Stopping Iteration**
+After every iteration of the algorithm, the function has_converged() is called. This function compares the current iteration’s q-matrix to the one from the previous iteration. If the matrices are different, it tells the program to run the algorithm again; if they have converged multiple times, the function sets the flag exit_algo to True which tells the program to exit the algorithm.
+
+-   **Choosing a Path**
+Once the q-matrix has converged, the robot_command() function uses the matrix to compile an ordering of the actions the bot should take. Starting first at state 0, the function chooses the action with the highest value and then proceeds to the next state to again choose the highest value. If, in any state, there is a tie between actions with the highest value, the function randomly chooses one to take and uses the chosen action to determine the next state it should look at.
+
+###Robot Perception
+-   **Colored Dumbbells**
+In class 3, we created a line follower robot that followed a yellow line. Since this in-class project required the robot to differentiate below colors, our code extrapolates this color differentiation to tell the red, blue, and green dumbbells apart. This ability is contained within the dumbbell_setup() function.
+
+-   **Numbered Blocks**
+We used the keras package recommended in the project instructions. Since we know that the robot is initialized facing the dumbbells, we used a function to turn the robot around 180 degrees and, once this was accomplished, have it feed an image it took of the blocks into the keras model. This is contained in the identity_numbers() function (and its parent function, block_setup()) in our code and this function returns the order of the blocks from left to right.
+
+### Robot Manipulation
+-   **Moving to Pick the Dumbbell Up**
+-   In this phase, the bot first positions and opens its gripper before moving to the dumbbell. Depending on the color, the bot utilizes one of three sister functions (identical in all but the color they look at) to create a color mask to isolate the target dumbbell. Then, the bot uses the find_db() function to slowly edge closer and closer to the dumbbell such that it slides perfectly the pre-positioned arm. This section draws heavily from the in-class project from class. 3.
+
+-   **Dumbbell Pickup**
+As mentioned in the above section, the robot locks its arm into position prior to navigating to the dumbbell. The intuition behind this sequence of movements was to standardize the arm position and robot movement across all dumbbells. The arm position was determined through trial and error and is encoded in the dumbbell_grasp_position() function.
+
+-   **Moving to the Desired Block**
+To navigate, the bot relies on travel(), a function leveraging odometry data to determine the bot’s path. Since we know the starting positions of both the blocks and dumbbells, we know the coordinates these entities are at; all that is needed is to determine precisely which of the three blocks and precisely which of the there dumbbells are the bot’s current focus (this is done by passing arguments to travel()). It should be noted that the bot’s arm position en route to the block is encoded in dumbbell_grasp_position() and is different from that used to initially pick up the dumbbell.
+
+-   **Placing the Dumbbell Down**
+Replicating the pickup method, the bot will lock into a predetermined position that enables it to, upon gripper open, place the dumbbell down seamlessly and without error.
+
+### Challenges
+We entered several challenges during the course of the project. With regards to algorithm implementation, one challenge we encountered involved the reward topic’s tendency to post an inconsistent number of messages for each iteration (someone else on Slack encountered this problem as well). For example, in the first complete iteration through all three dumbbells, the reward topic might correctly return three distinct rewards. However, in the next iteration, it might return four or even five reward values. To circumnavigate this problem, we compared each reward’s timestamp to the previous reward’s timestamp. Although it is difficult to pinpoint the cause of this inconsistency, we suspect there might be a race condition embedded within our bot’s instructions. Since our program has several rospy.sleep() commands, we knew that we should ignore any reward messages that came too quickly after another one. Using a timestamp difference of 0.08 seconds or greater resolved this issue.
+
+Another challenge we encountered was that the robot would successfully navigate to and pick up a dumbbell, but, after a couple of seconds, the dumbbell would fall out of the robot’s arm. Since the robot did not know this occurred, it would proceed as if nothing had happened. This was frustrating to solve and we resorted to trial and error to determine the arm position that might prevent such a scenario from happening.
+
+### Future Work
+If we have more time, it would have been interesting to optimize our algorithm. As it stands today, our algorithm uses a learning rate and future discount rate of 1. Although these result in the correct placement of dumbbells, we could, in theory, optimize the robot’s path between dumbbells and blocks to minimize the amount of time and the distance it takes to place down all these dumbbells. Within the current program this is arguably a trivial improvement, but such an improvement would be useful if our program was deployed in more complex environments.
+ 
+### Takeaways
+- The use of self variables: I still do not fully understand self variables but delineating between “normal” variables and those with the self prefix is important. At certain points, the code was correct in theory but was different in practice because a self variable’s values might be unwittingly changed. We recommend future classmates look into the use of copy.deepcopy() when working with self variables.
+- Modular construction: Deploying modular construction to a coding environment is useful not just in writing code but, even more importantly, in debugging. Since this project involves a lot of different components, breaking everything down into smaller helper functions was useful in isolating and fixing bugs.
+
+
+
 ## Implementation Plan
 
 ###   Q-learning algorithm
