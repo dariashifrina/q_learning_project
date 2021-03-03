@@ -322,9 +322,6 @@ class QLearner:
                 z = copy.deepcopy(self.actual_q_matrix.q_matrix[self.actual_state])
                 z.q_matrix_row[self.action_num] = total_val
                 self.actual_q_matrix.q_matrix[self.actual_state] = z
-                # print('Time ' + str(self.t) + ', State ' + str(self.actual_state) + ', Next ' + str(next_state))
-                # print('Action '+ str(self.action_num) + ', Value ' + str(z))
-                # print('Reward ' + str(reward) + ', Next State ' + str(next_state_reward) + ', Future ' + str(future_val))
 
                 # Update the current state and increment the time
                 self.actual_state = next_state
@@ -349,6 +346,7 @@ class QLearner:
                     print(self.converge_count)
                     print(self.t)
                     print('---Matrix has Converged---')
+                    # Generate order of actions to be taken
                     self.robot_command(copy.deepcopy(self.actual_q_matrix), copy.deepcopy(self.state_matrix))
 
             self.last_msg_time = msg_time
