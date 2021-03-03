@@ -64,11 +64,42 @@ class RobotMovement:
             self.initialized = True
             self.dumbbell_setup()
             print(self.db_order)
+            self.block_setup()
+
             self.travel(0, 0)
             self.dumbbell_grasp_position() 
-            self.find_blue_db()
+            self.arrived = True
+            while(self.arrived):
+                self.find_green_db()
             self.grip_close()
             self.dumbbell_pickup_position()
+            self.travel(block_coords[0][0], block_coords[0][1])
+            self.dumbbell_grasp_position()
+
+            self.travel(0, 0)
+            self.turn_around(110)
+            self.arrived = True
+            while(self.arrived):
+                self.find_blue_db()
+            self.grip_close()
+            self.dumbbell_pickup_position()
+            self.travel(block_coords[1][0], block_coords[1][1])
+            self.dumbbell_grasp_position()
+
+            self.travel(0, 0)
+            self.turn_around(20)
+            self.dumbbell_grasp_position() 
+            self.arrived = True
+            while(self.arrived):
+                self.find_red_db()
+            self.grip_close()
+            self.dumbbell_pickup_position()
+            self.travel(block_coords[2][0], block_coords[2][1])
+            self.dumbbell_grasp_position()
+
+
+
+
             # uncomment what is below to see the bot navigate between all the blocks and all the dumbbells.           
             self.block_lineup = []    
             '''self.block_setup()
@@ -236,7 +267,7 @@ class RobotMovement:
             upper_red = numpy.array([10,255,255])
             mask = cv2.inRange(hsv, lower_red, upper_red)
 
-            self.find_db(image, mask)
+            self.find_db(mask)
 
         #find green db in field of vision and approach
         def find_green_db(self):
@@ -246,55 +277,60 @@ class RobotMovement:
             upper_green = numpy.array([70,255,255])
             mask = cv2.inRange(hsv, lower_green, upper_green)
 
-            self.find_db(image, mask)
+            self.find_db(mask)
 
         #find blue db in field of vision and approach
         def find_blue_db(self):
+            print("dumbbell blue")
             image = self.view
             hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
             lower_blue = numpy.array([110,50,50])
             upper_blue = numpy.array([130,255,255])
             mask = cv2.inRange(hsv, lower_blue, upper_blue)
 
-            self.find_db(image, mask)
+            self.find_db(mask)
 
 
         #function for navigating to specific dumbbell using CV. this is called after the main locator function, which helps the robot navigate closer. this function centers bot on dumbbell
-        def find_db(self,image, mask):
+        def find_db(self,mask):
                 # # this erases all pixels that aren't yellow
-                while(self.directly_ahead > 0.2):
-                    h, w, d = image.shape
-                    search_top = int(h/2)
-                    search_bot = int(h/2 + 1)
-                    mask[0:search_top, 0:w] = 0
-                    mask[search_bot:h, 0:w] = 0
+                if(self.directly_ahead <= 0.25):
+                    print("arrived")
+                    self.arrived = False 
+                    twister = Twist()
+                    twister.linear.x = 0
+                    twister.angular.z = 0
+            
+                    self.navigator.publish(twister)
+                    return
+                image = self.view
+                h, w, d = image.shape
+                search_top = int(h/2)
+                search_bot = int(h/2 + 1)
+                mask[0:search_top, 0:w] = 0
+                mask[search_bot:h, 0:w] = 0
 
-                    # # using moments() function, the center of the yellow pixels is determined
-                    M = cv2.moments(mask)
-                    # # if there are any yellow pixels found
-                    if M['m00'] > 0:
-                            # center of the yellow pixels in the image
-                            cx = int(M['m10']/M['m00'])
-                            cy = int(M['m01']/M['m00'])
+                # # using moments() function, the center of the yellow pixels is determined
+                M = cv2.moments(mask)
+                # # if there are any yellow pixels found
+                if M['m00'] > 0:
+                        # center of the yellow pixels in the image
+                        cx = int(M['m10']/M['m00'])
+                        cy = int(M['m01']/M['m00'])
 
-                            # a red circle is visualized in the debugging window to indicate
-                            # the center point of the specific color pixels
-                            cv2.circle(image, (cx, cy), 20, (255,0,0), -1)
-                    
-                            prop_control = 0.2
-                            center = w/2
-                            error = (center - cx)
-                    
-                            twister = Twist()
-                            twister.linear.x = 0.1
-                            twister.angular.z = prop_control * error*3.1415/180
-                    
-                            self.navigator.publish(twister)
-                twister = Twist()
-                twister.linear.x = 0
-                twister.angular.z = 0
-        
-                self.navigator.publish(twister)
+                        # a red circle is visualized in the debugging window to indicate
+                        # the center point of the specific color pixels
+                        cv2.circle(image, (cx, cy), 20, (255,0,0), -1)
+                
+                        prop_control = 0.2
+                        center = w/2
+                        error = (center - cx)
+                
+                        twister = Twist()
+                        twister.linear.x = 0.2
+                        twister.angular.z = prop_control * error*3.1415/180
+                
+                        self.navigator.publish(twister)
 
         #call this to make robot stoop and open grasp. ready to grip dumbbell -> needs fixing. it doesnt pick it up well...
         def dumbbell_grasp_position(self):
@@ -312,14 +348,13 @@ class RobotMovement:
         def grip_close(self):
             if(self.initialized):
                 print("pickup dumbbell")
-                gripper_joint_goal = [0.001,0.001]
+                gripper_joint_goal = [0.003,0.003]
                 self.move_group_gripper.go(gripper_joint_goal, wait=True)
                 self.move_group_gripper.stop()     
-                #rospy.sleep(1) 
 
         #best config so far for carrying dumbbell
         def dumbbell_pickup_position(self):
-                arm_joint_goal = [0.05,0,0,0] #[0.05,0,-0.347,-1.1]
+                arm_joint_goal = [0.05,0,-0.347,-1.1] #[0.05,0,-0.347,-1.1] #[0.05,0,-0.347,-1.1]
                 self.move_group_arm.go(arm_joint_goal, wait=True)
                 # Calling ``stop()`` ensures that there is no residual movement
                 self.move_group_arm.stop() 
