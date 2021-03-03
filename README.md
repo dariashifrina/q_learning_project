@@ -22,7 +22,7 @@ After every iteration of the algorithm, the function has_converged() is called. 
 -   **Choosing a Path**
 Once the q-matrix has converged, the robot_command() function uses the matrix to compile an ordering of the actions the bot should take. Starting first at state 0, the function chooses the action with the highest value and then proceeds to the next state to again choose the highest value. If, in any state, there is a tie between actions with the highest value, the function randomly chooses one to take and uses the chosen action to determine the next state it should look at.
 
-###Robot Perception
+### Robot Perception
 -   **Colored Dumbbells**
 In class 3, we created a line follower robot that followed a yellow line. Since this in-class project required the robot to differentiate below colors, our code extrapolates this color differentiation to tell the red, blue, and green dumbbells apart. This ability is contained within the dumbbell_setup() function.
 
