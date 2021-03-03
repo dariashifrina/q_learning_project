@@ -64,15 +64,14 @@ class RobotMovement:
             self.initialized = True
             self.dumbbell_setup()
             print(self.db_order)
-            self.travel(0.75, 0)
+            self.travel(0, 0)
             self.dumbbell_grasp_position() 
-            rospy.sleep(1)
-            self.find_green_db()
+            self.find_blue_db()
             self.grip_close()
             self.dumbbell_pickup_position()
             # uncomment what is below to see the bot navigate between all the blocks and all the dumbbells.           
-            '''self.block_lineup = []    
-            self.block_setup()
+            self.block_lineup = []    
+            '''self.block_setup()
             self.travel(0.7,0.3)
             self.travel(block_coords[0][0], block_coords[0][1])
             self.travel(0.65,0)
@@ -263,7 +262,7 @@ class RobotMovement:
         #function for navigating to specific dumbbell using CV. this is called after the main locator function, which helps the robot navigate closer. this function centers bot on dumbbell
         def find_db(self,image, mask):
                 # # this erases all pixels that aren't yellow
-                while(self.directly_ahead > 0.27):
+                while(self.directly_ahead > 0.2):
                     h, w, d = image.shape
                     search_top = int(h/2)
                     search_bot = int(h/2 + 1)
@@ -301,7 +300,7 @@ class RobotMovement:
         def dumbbell_grasp_position(self):
             if(self.initialized):
                 print("ready to scoop dumbbell")
-                arm_joint_goal = [0.0,0.99,-0.942478,0.309]
+                arm_joint_goal = [0.0,0.99,-0.942478,-.015] #instead of 0.309 do -.015
                 self.move_group_arm.go(arm_joint_goal, wait=True)
                 self.move_group_arm.stop()
                 gripper_joint_goal = [0.016,0.016]
@@ -313,14 +312,14 @@ class RobotMovement:
         def grip_close(self):
             if(self.initialized):
                 print("pickup dumbbell")
-                gripper_joint_goal = [-0.002,-0.002]
+                gripper_joint_goal = [0.001,0.001]
                 self.move_group_gripper.go(gripper_joint_goal, wait=True)
                 self.move_group_gripper.stop()     
                 #rospy.sleep(1) 
 
         #best config so far for carrying dumbbell
         def dumbbell_pickup_position(self):
-                arm_joint_goal = [0.05,0,-0.347,-1.1]
+                arm_joint_goal = [0.05,0,0,0] #[0.05,0,-0.347,-1.1]
                 self.move_group_arm.go(arm_joint_goal, wait=True)
                 # Calling ``stop()`` ensures that there is no residual movement
                 self.move_group_arm.stop() 
