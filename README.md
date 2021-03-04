@@ -75,8 +75,9 @@ If we have more time, it would have been interesting to optimize our algorithm. 
 ###   Q-learning algorithm
 -   **Executing the Q-learning algorithm**
     
-
-![](https://lh3.googleusercontent.com/hnlul0XhaNpAwx9ZUYSOJ_QOQMIeCt6X_QhAFaTO1XsYm3nI_icYyTzyl1gyp_f63WOFsPBTaITsvIFpHIV_xnmemnOuyBlBQy4bZO7M-BlkoK_vOZ-p2DtwB1ojLW_f45j64s1B)
+<p align="center">
+  <img src="https://lh3.googleusercontent.com/hnlul0XhaNpAwx9ZUYSOJ_QOQMIeCt6X_QhAFaTO1XsYm3nI_icYyTzyl1gyp_f63WOFsPBTaITsvIFpHIV_xnmemnOuyBlBQy4bZO7M-BlkoK_vOZ-p2DtwB1ojLW_f45j64s1B" alt="Algorithm"/>
+</p>
 
   
 
