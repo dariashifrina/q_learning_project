@@ -41,7 +41,7 @@ In class 3, we created a line follower robot that followed a yellow line. Since 
 
 ### Robot Manipulation - robotmovement.py
 -   **Moving to Pick the Dumbbell Up**
--   In this phase, the bot first positions and opens its gripper before moving to the dumbbell. Depending on the color, the bot utilizes one of three sister functions (identical in all but the color they look at) to create a color mask to isolate the target dumbbell. Then, the bot uses the find_db() function to slowly edge closer and closer to the dumbbell such that it slides perfectly the pre-positioned arm. This section draws heavily from the in-class project from class3. 
+In this phase, the bot first positions and opens its gripper before moving to the dumbbell. Depending on the color, the bot utilizes one of three sister functions (identical in all but the color they look at) to create a color mask to isolate the target dumbbell. Then, the bot uses the find_db() function to slowly edge closer and closer to the dumbbell such that it slides perfectly the pre-positioned arm. This section draws heavily from the in-class project from class3. 
 
 <p align="center">
   <img src="dumbbellpickup.gif" alt="Dumbbell Pickup"/>
@@ -67,6 +67,13 @@ If we have more time, it would have been interesting to optimize our algorithm. 
 ### Takeaways
 - The use of self variables: I still do not fully understand self variables but delineating between “normal” variables and those with the self prefix is important. At certain points, the code was correct in theory but was different in practice because a self variable’s values might be unwittingly changed. We recommend future classmates look into the use of copy.deepcopy() when working with self variables.
 - Modular construction: Deploying modular construction to a coding environment is useful not just in writing code but, even more importantly, in debugging. Since this project involves a lot of different components, breaking everything down into smaller helper functions was useful in isolating and fixing bugs.
+
+### NOTE
+Please adhere to the following order to run our code:
+1) Roslaunch the launch file and spin up phantom_robot_movement.py
+2) Rosrun q_learning_project q_learning.py (this file executes the q_learning algorithm)
+3) Roslaunch turtlebot3_manipulation_moveit_config move_group.launch (moveit node)
+4) Rosrun q_learning_project robotmovement.py (this file physically moves the dumbbells to their appropriate block locations)
 
 
 
