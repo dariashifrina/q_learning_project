@@ -52,81 +52,66 @@ class RobotMovement:
 
             self.odometry = rospy.Subscriber("/odom", Odometry, self.odometry_callback)
             self.position = None
+
             #let gazebo start up properly
             #the following two lists hold odometry locations of the blocks and dumbbells, relatively left to right
             block_coords = [(-1.4,-2),(-1.2,-0.002),(-1.4,2)]
-            self.db_order = [(0.7,0.3),(0.65,0),(0.7,-0.3)]
+            db_coords = [(0.7,0.3),(0.65,0),(0.7,-0.3)]
             rospy.sleep(1)
 
-
-            #where i'm currently testing stuff. trying to make robot pick up blue dumbbell properly.
-            #todo: adjust dumbbell grip and arm joints. also maybe modify odom coordinates for the block.
             self.initialized = True
+
+            #setup dumbbells and blocks
             self.dumbbell_setup()
-            print(self.db_order)
             self.block_setup()
-
-            self.travel(0, 0)
-            self.dumbbell_grasp_position() 
-            self.arrived = True
-            while(self.arrived):
-                self.find_green_db()
-            self.grip_close()
-            self.dumbbell_pickup_position()
-            self.travel(block_coords[0][0], block_coords[0][1])
-            self.dumbbell_grasp_position()
-
-            self.travel(0, 0)
-            self.turn_around(110)
-            self.arrived = True
-            while(self.arrived):
-                self.find_blue_db()
-            self.grip_close()
-            self.dumbbell_pickup_position()
-            self.travel(block_coords[1][0], block_coords[1][1])
-            self.dumbbell_grasp_position()
-
-            self.travel(0, 0)
-            self.turn_around(20)
-            self.dumbbell_grasp_position() 
-            self.arrived = True
-            while(self.arrived):
-                self.find_red_db()
-            self.grip_close()
-            self.dumbbell_pickup_position()
-            self.travel(block_coords[2][0], block_coords[2][1])
-            self.dumbbell_grasp_position()
+            flag = 0
+            for i in range(3):
+                current_db = self.db_order[i][0]
+                self.travel(0, 0)
+                if(flag == 1):
+                    self.turn_around(20)
+                if(flag == 2):
+                    self.turn_around(110)
+                if(flag == 3):
+                    self.turn_around(300)
+                self.dumbbell_grasp_position() 
+                self.arrived = True
+                while(self.arrived):
+                    self.find_num_db(current_db)
+                self.grip_close()
+                self.dumbbell_pickup_position()
+                if(current_db == 0): #means its red
+                    self.travel(block_coords[self.block_lineup.index(3)][0], block_coords[self.block_lineup.index(3)][1])
+                    flag = 3
+                elif(current_db == 1): #means its green
+                    self.travel(block_coords[self.block_lineup.index(1)][0], block_coords[self.block_lineup.index(1)][1])
+                    flag = 2
+                else: #means its blue
+                    self.travel(block_coords[self.block_lineup.index(2)][0], block_coords[self.block_lineup.index(2)][1])
+                    flag = 1
+                self.dumbbell_grasp_position()
 
 
-
-
-            # uncomment what is below to see the bot navigate between all the blocks and all the dumbbells.           
-            self.block_lineup = []    
-            '''self.block_setup()
-            self.travel(0.7,0.3)
-            self.travel(block_coords[0][0], block_coords[0][1])
-            self.travel(0.65,0)
-            self.travel(block_coords[1][0], block_coords[1][1])
-            self.travel(0.7,-0.3)
-            self.travel(block_coords[2][0], block_coords[2][1])'''
         def image_callback(self, msg):
 
                 self.view = self.bridge.imgmsg_to_cv2(msg,desired_encoding='bgr8')
 
         def odometry_callback(self, data):
             self.position = data.pose.pose
-            #print(self.position.position)
-            #rospy.sleep(1)
 
+
+        #function to figure out order of the blocks
         def block_setup(self):
-            #self.setup=False
-
-            print("turn")
+            #turn to face two leftmost blocks
             self.turn_around(160)
+            #identify what those two are using keras_ocr and deduce third block
             self.block_lineup = self.identify_numbers()
+            #turn around to face all dbs
             self.turn_around(200)
 
         def dumbbell_setup(self):
+
+            #obtain colors in image
             image = self.view
             hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
@@ -143,6 +128,8 @@ class RobotMovement:
             mask_upper = [upper_red, upper_green, upper_blue]
 
             range_list = []
+            #for each general area detected, see which color it matches with and store x value
+            #red is index 0, green is index 1, and blue is index 2
             for i in range(3):
                 mask = cv2.inRange(hsv, mask_low[i], mask_upper[i])
                 h, w, d = image.shape
@@ -155,24 +142,27 @@ class RobotMovement:
                     # center of the yellow pixels in the image
                     cx = int(M['m10']/M['m00'])
                     range_list.append([i,cx])
+            #sort the list of colors based on the x value of the detected blocks. leftmost color will have smallest x
             range_list = sorted(range_list, key=itemgetter(1))
             self.db_order = range_list
 
         #function for detecting numbers and navigating to the block
         #currently just goes to the first number possible
         def identify_numbers(self):
-            print("finding block")
+
+            #grab current image and use keras_ocr to detect numbers (will see the two leftmost numbers)
             rospy.sleep(1)
             image = self.view
             h, w, d = image.shape
             pipeline = keras_ocr.pipeline.Pipeline()
             prediction_groups = pipeline.recognize([image])
-            print(prediction_groups)
-            print(prediction_groups[0][0][1][0][0])
-            print(prediction_groups[0][1][1][0][0])
+
             first = 999
             first_num = 0
             second_num = 0
+
+            #using the x values of the rectangle bounds for the two detected numbers, figure out which number is leftmost and which is center.
+            #smaller x value corresponds to leftmost number
             for i in range(2):
                 if prediction_groups[0][i][1][0][0] < first:
                     first = prediction_groups[0][i][1][0][0]
@@ -182,20 +172,20 @@ class RobotMovement:
                 else:
                     second = prediction_groups[0][i][1][0][0]
                     second_num = int(prediction_groups[0][i][0])                                     
-            print(first_num)
-            print(second_num)
+
+            #given first two numbers, figure out what the remaining rightmost number must be
             nums = [1,2,3]
             nums.remove(first_num)
             nums.remove(second_num)
             third_num = nums[0]
-            print(third_num)   
+
+            #return list of the order of the blocks from left to right
             return([first_num,second_num,third_num]) 
 
 
         #helper function for rotating bot. used to survey the numbers on the blocks.
         def turn_around(self, angle):
             relative_angle = (angle * math.pi) / 180
-            print(relative_angle)
             angular_speed = 0.2
             twister = Twist()
             twister.angular.z = -abs(angular_speed)
@@ -236,18 +226,13 @@ class RobotMovement:
                 if distance < 0.1:
                     speed.linear.x = 0.0
                     speed.angular.z = 0.0
-                    print(self.position.position)
                     self.navigator.publish(speed)
-                    print("too close")
                     break
-                print(angle_to_goal - theta)
                 if abs(angle_to_goal- theta) > 0.3:
-                    print("turning")
                     speed.linear.x = 0.0
                     prop_control = 0.3
                     speed.angular.z = prop_control
                 else:
-                    print("going forward")
                     speed.linear.x = 0.5
                     speed.angular.z = 0.0
 
@@ -258,6 +243,15 @@ class RobotMovement:
         def process_scan(self, data):
             self.directly_ahead = data.ranges[0]
 
+
+        #redirects finding dbs based on the color index list
+        def find_num_db(self,num):
+            if num == 0:
+                self.find_red_db()
+            if num == 1:
+                self.find_green_db()
+            else:
+                self.find_blue_db()
 
         #find red db in field of vision and approach
         def find_red_db(self):
@@ -281,7 +275,6 @@ class RobotMovement:
 
         #find blue db in field of vision and approach
         def find_blue_db(self):
-            print("dumbbell blue")
             image = self.view
             hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
             lower_blue = numpy.array([110,50,50])
@@ -295,7 +288,6 @@ class RobotMovement:
         def find_db(self,mask):
                 # # this erases all pixels that aren't yellow
                 if(self.directly_ahead <= 0.25):
-                    print("arrived")
                     self.arrived = False 
                     twister = Twist()
                     twister.linear.x = 0
@@ -335,7 +327,6 @@ class RobotMovement:
         #call this to make robot stoop and open grasp. ready to grip dumbbell -> needs fixing. it doesnt pick it up well...
         def dumbbell_grasp_position(self):
             if(self.initialized):
-                print("ready to scoop dumbbell")
                 arm_joint_goal = [0.0,0.99,-0.942478,-.015] #instead of 0.309 do -.015
                 self.move_group_arm.go(arm_joint_goal, wait=True)
                 self.move_group_arm.stop()
@@ -347,7 +338,6 @@ class RobotMovement:
         #call this to make robot close grip
         def grip_close(self):
             if(self.initialized):
-                print("pickup dumbbell")
                 gripper_joint_goal = [0.003,0.003]
                 self.move_group_gripper.go(gripper_joint_goal, wait=True)
                 self.move_group_gripper.stop()     
