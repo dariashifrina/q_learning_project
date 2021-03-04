@@ -2,6 +2,11 @@
 
 ## Team Members: Joshua Soong, Daria Shifrina
 
+<p align="center">
+  <img src="algogif.gif" alt="Robot Navigation Demo"/>
+</p>
+
+
 ## Writeup
 ### Objectives
 In tackling this project, we aimed to create a program that would enable our Turtlebot to place three different-colored dumbbells in front of three different-numbered blocks. Although the robot did not know the correct association between the dumbbells and the blocks, it utilized a q-learning algorithm to determine the correct arrangement and then execute the dumbbell placement.
