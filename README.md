@@ -72,7 +72,7 @@ If we have more time, it would have been interesting to optimize our algorithm. 
 Please adhere to the following order to run our code:
 1) Roslaunch the launch file and spin up phantom_robot_movement.py
 2) Rosrun q_learning_project q_learning.py (this file executes the q_learning algorithm)
-3) Roslaunch turtlebot3_manipulation_moveit_config move_group.launch (moveit node)
+3) Roslaunch turtlebot3_manipulation_moveit_config move_group.launch (moveit node; we suggest you reset the world before having the robot carry the dumbbells)
 4) Rosrun q_learning_project robotmovement.py (this file physically moves the dumbbells to their appropriate block locations)
 
 
